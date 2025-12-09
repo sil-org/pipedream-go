@@ -2,6 +2,7 @@ package parcs_test
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 	"time"
 
@@ -71,6 +72,109 @@ var cashRefund = parcs.Transaction{
 	CustomerCategory:     "10",
 	ParCSTranCode:        "MC",
 	TranType:             "CashRfnd",
+}
+
+func Test_createXMLDocuments(t *testing.T) {
+	st := []parcs.SubsidiaryTransactions{{
+		Subsidiary:   "XYZ",
+		TotalAmount:  cashSale.SaleAmount + cashRefund.RefundAmount,
+		Transactions: []parcs.Transaction{cashSale, cashRefund},
+	}}
+
+	want := []parcs.XMLDocument{{
+		Name:    "XYZ",
+		Content: xmlSample,
+	}}
+
+	got, err := parcs.CreateXMLDocuments(st)
+	if err != nil {
+		t.Errorf("createXMLDocuments() error = %v", err)
+		return
+	}
+	if !strings.HasPrefix(got[0].Name, st[0].Subsidiary) {
+		t.Error("XML document does not have the expected name, should start with the subsidiary code")
+	}
+	if !cmp.Equal(got[0].Content, want[0].Content) {
+		t.Error("diff:", cmp.Diff(got, want))
+	}
+}
+
+func Test_createXMLDocument(t *testing.T) {
+	tests := []struct {
+		name    string
+		st      parcs.SubsidiaryTransactions
+		want    []byte
+		wantErr bool
+	}{
+		{
+			name: "empty",
+			st:   parcs.SubsidiaryTransactions{},
+			want: []byte(`<?xml version="1.0" encoding="UTF-8"?>
+<PMISBatch>
+	<Header>
+		<BatchCount>0</BatchCount>
+		<BatchTotal>0</BatchTotal>
+		<Originating_PP></Originating_PP>
+	</Header>
+</PMISBatch>`),
+			wantErr: false,
+		},
+		{
+			name: "one",
+			st: parcs.SubsidiaryTransactions{
+				Subsidiary:  "x",
+				TotalAmount: 1,
+				Transactions: []parcs.Transaction{{
+					NetSuiteID:           "a",
+					CustomerExternalID:   "b",
+					Memo:                 "c",
+					SubsidiaryExternalID: "d",
+					TranDate:             time.Date(2009, time.November, 10, 23, 0, 0, 0, time.UTC),
+					TranID:               "e",
+					SaleAmount:           1,
+					RefundAmount:         2,
+					ParCSReference:       "f",
+					CustomerCategory:     "g",
+					ParCSTranCode:        "h",
+					TranType:             "i",
+				}},
+			},
+			want: []byte(`<?xml version="1.0" encoding="UTF-8"?>
+<PMISBatch>
+	<Header>
+		<BatchCount>1</BatchCount>
+		<BatchTotal>0.01</BatchTotal>
+		<Originating_PP>x</Originating_PP>
+	</Header>
+	<PMISTran>
+		<TranType>GT</TranType>
+		<RPP></RPP>
+		<OPP_Transaction_Amount>0.02</OPP_Transaction_Amount>
+		<Transaction_Description>c</Transaction_Description>
+		<Household_Code></Household_Code>
+		<RPP_Destination_String>f</RPP_Destination_String>
+		<RPP_Trans_Type_Code>h</RPP_Trans_Type_Code>
+		<OPP_Transaction_Ref>Netsuite: i_e</OPP_Transaction_Ref>
+		<Originating_Person>OppExport_Workday</Originating_Person>
+		<OPP_Transaction_Date>2009-11-10</OPP_Transaction_Date>
+	</PMISTran>
+</PMISBatch>`),
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := parcs.CreateXMLDocument(tt.st)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !cmp.Equal(got, tt.want) {
+				t.Error("diff:", cmp.Diff(got, tt.want))
+			}
+		})
+	}
 }
 
 func Test_convertTransaction(t *testing.T) {
