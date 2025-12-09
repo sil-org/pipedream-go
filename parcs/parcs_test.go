@@ -7,7 +7,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 
-	"github.com/sil-org/pipedream-parcs-outbound/parcs"
+	"github.com/sil-org/pipedream-go/parcs"
 )
 
 const xmlSample = `<?xml version="1.0" encoding="UTF-8"?>
