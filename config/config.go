@@ -42,7 +42,7 @@ func ReadParameterStore(path string, cfg any) {
 			continue
 		}
 
-		err = SetStructField(&cfg, name, *v.Value)
+		err = SetStructField(cfg, name, *v.Value)
 		if err != nil {
 			log.Printf("readParameterStore: %s", err)
 			continue
@@ -75,28 +75,38 @@ func getAllParameters(client *ssm.Client, path string) ([]types.Parameter, error
 }
 
 // SetStructField uses reflection to set the value of a struct field by name
-func SetStructField(structPtr any, fieldName string, value any) error {
-	ptrValue := reflect.ValueOf(structPtr)
-	if ptrValue.Kind() != reflect.Ptr || ptrValue.Elem().Kind() != reflect.Struct {
-		return fmt.Errorf("structPtr must be a pointer to a struct")
+func SetStructField(structPtr any, fieldName string, value string) error {
+	if structPtr == nil {
+		return fmt.Errorf("struct pointer is nil")
 	}
 
-	structValue := ptrValue.Elem()
-	fieldValue := structValue.FieldByName(fieldName)
+	rv := reflect.ValueOf(structPtr)
+	if rv.Kind() != reflect.Ptr {
+		return fmt.Errorf("structPtr is not a pointer, it is %T", structPtr)
+	}
 
-	if !fieldValue.IsValid() {
+	if rv.IsNil() {
+		return fmt.Errorf("structPtr is a nil pointer")
+	}
+
+	elem := rv.Elem()
+	if elem.Kind() != reflect.Struct {
+		return fmt.Errorf("structPtr must be a pointer to a struct, got %s", elem.Kind())
+	}
+
+	field := elem.FieldByName(fieldName)
+	if !field.IsValid() {
 		return fmt.Errorf("field %q does not exist in the struct", fieldName)
 	}
 
-	if !fieldValue.CanSet() {
-		return fmt.Errorf("field cannot be set (possibly unexported)")
+	if !field.CanSet() {
+		return fmt.Errorf("field %q cannot be set (possibly unexported)", fieldName)
 	}
 
-	val := reflect.ValueOf(value)
-	if fieldValue.Type() != val.Type() {
-		return fmt.Errorf("field expects a value of type %s, got %s", fieldValue.Type(), val.Type())
+	if field.Kind() != reflect.String {
+		return fmt.Errorf("field %q must be a string, it is %s", fieldName, field.Type())
 	}
 
-	fieldValue.Set(val)
+	field.SetString(value)
 	return nil
 }
