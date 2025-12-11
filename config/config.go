@@ -36,9 +36,8 @@ func ReadParameterStore(path string, cfg any) {
 		name := strings.TrimPrefix(*v.Name, path)
 		name = strings.TrimPrefix(name, "/")
 
-		fields := map[string]any{"name": name}
 		if v.Value == nil {
-			log.Printf("SSM returned parameter with nil value, %v", fields)
+			log.Printf("SSM returned parameter with nil value, %v", name)
 			continue
 		}
 
