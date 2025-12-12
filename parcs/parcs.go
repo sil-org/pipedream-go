@@ -16,8 +16,7 @@ type Transaction struct {
 	SubsidiaryExternalID string
 	TranDate             time.Time
 	TranID               string
-	SaleAmount           int
-	RefundAmount         int
+	Amount               int
 	ParCSReference       string
 	CustomerCategory     string
 	ParCSTranCode        string
@@ -128,10 +127,6 @@ func ConvertTransaction(t Transaction) PMISTran {
 	if t.CustomerCategory == "2" || t.CustomerCategory == "12" {
 		rpp = t.CustomerExternalID
 	}
-	oppAmt := float64(t.RefundAmount) / 100
-	if t.TranType == "CashSale" || t.TranType == "CustomerDeposit" {
-		oppAmt = float64(t.SaleAmount) / 100
-	}
 	desc := t.Memo
 	hhCode := ""
 	if t.CustomerCategory == "10" || t.CustomerCategory == "7" {
@@ -146,7 +141,7 @@ func ConvertTransaction(t Transaction) PMISTran {
 	return PMISTran{
 		TranType:             tranType,
 		RPP:                  rpp,
-		OPPTransactionAmount: oppAmt,
+		OPPTransactionAmount: float64(t.Amount) / 100,
 		TransactionDesc:      desc,
 		HouseholdCode:        hhCode,
 		RPPDestination:       rppDest,
