@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 
 	"github.com/sil-org/pipedream-go/parcs"
 )
@@ -15,7 +16,7 @@ const xmlSample = `<?xml version="1.0" encoding="UTF-8"?>
 <PMISBatch>
 	<Header>
 		<BatchCount>2</BatchCount>
-		<BatchTotal>111</BatchTotal>
+		<BatchTotal>-88.8</BatchTotal>
 		<Originating_PP>XYZ</Originating_PP>
 	</Header>
 	<PMISTran>
@@ -33,7 +34,7 @@ const xmlSample = `<?xml version="1.0" encoding="UTF-8"?>
 	<PMISTran>
 		<TranType>GT</TranType>
 		<RPP></RPP>
-		<OPP_Transaction_Amount>99.9</OPP_Transaction_Amount>
+		<OPP_Transaction_Amount>-99.9</OPP_Transaction_Amount>
 		<Transaction_Description>Sample description with &lt;brackets&gt; and &#39;quotes&#39;</Transaction_Description>
 		<Household_Code>223944</Household_Code>
 		<RPP_Destination_String>ref1</RPP_Destination_String>
@@ -51,8 +52,7 @@ var cashSale = parcs.Transaction{
 	SubsidiaryExternalID: "",
 	TranDate:             time.Date(2025, 7, 31, 0, 0, 0, 0, time.UTC),
 	TranID:               "CS90384",
-	SaleAmount:           1110,
-	RefundAmount:         0,
+	Amount:               1110,
 	ParCSReference:       "ref1",
 	CustomerCategory:     "10",
 	ParCSTranCode:        "MC",
@@ -66,8 +66,7 @@ var cashRefund = parcs.Transaction{
 	SubsidiaryExternalID: "",
 	TranDate:             time.Date(2025, 7, 31, 0, 0, 0, 0, time.UTC),
 	TranID:               "CS90384",
-	SaleAmount:           0,
-	RefundAmount:         9990,
+	Amount:               -9990,
 	ParCSReference:       "ref1",
 	CustomerCategory:     "10",
 	ParCSTranCode:        "MC",
@@ -77,7 +76,7 @@ var cashRefund = parcs.Transaction{
 func Test_createXMLDocuments(t *testing.T) {
 	st := []parcs.SubsidiaryTransactions{{
 		Subsidiary:   "XYZ",
-		TotalAmount:  cashSale.SaleAmount + cashRefund.RefundAmount,
+		TotalAmount:  cashSale.Amount + cashRefund.Amount,
 		Transactions: []parcs.Transaction{cashSale, cashRefund},
 	}}
 
@@ -94,8 +93,8 @@ func Test_createXMLDocuments(t *testing.T) {
 	if !strings.HasPrefix(got[0].Name, st[0].Subsidiary) {
 		t.Error("XML document does not have the expected name, should start with the subsidiary code")
 	}
-	if !cmp.Equal(got[0].Content, want[0].Content) {
-		t.Error("diff:", cmp.Diff(got, want))
+	if !cmp.Equal(got[0], want[0], cmpopts.IgnoreFields(parcs.XMLDocument{}, "Name")) {
+		t.Error("diff:", cmp.Diff(got[0], want[0]))
 	}
 }
 
@@ -131,8 +130,7 @@ func Test_createXMLDocument(t *testing.T) {
 					SubsidiaryExternalID: "d",
 					TranDate:             time.Date(2009, time.November, 10, 23, 0, 0, 0, time.UTC),
 					TranID:               "e",
-					SaleAmount:           1,
-					RefundAmount:         2,
+					Amount:               1,
 					ParCSReference:       "f",
 					CustomerCategory:     "g",
 					ParCSTranCode:        "h",
@@ -149,7 +147,7 @@ func Test_createXMLDocument(t *testing.T) {
 	<PMISTran>
 		<TranType>GT</TranType>
 		<RPP></RPP>
-		<OPP_Transaction_Amount>0.02</OPP_Transaction_Amount>
+		<OPP_Transaction_Amount>0.01</OPP_Transaction_Amount>
 		<Transaction_Description>c</Transaction_Description>
 		<Household_Code></Household_Code>
 		<RPP_Destination_String>f</RPP_Destination_String>
@@ -205,7 +203,7 @@ func Test_convertTransaction(t *testing.T) {
 			want: parcs.PMISTran{
 				TranType:             "GT",
 				RPP:                  "",
-				OPPTransactionAmount: 99.9,
+				OPPTransactionAmount: -99.9,
 				TransactionDesc:      "Sample description with <brackets> and 'quotes'",
 				HouseholdCode:        "223944",
 				RPPDestination:       "ref1",
@@ -228,7 +226,7 @@ func Test_convertTransaction(t *testing.T) {
 func Test_writeXML(t *testing.T) {
 	st := parcs.SubsidiaryTransactions{
 		Subsidiary:   "XYZ",
-		TotalAmount:  cashSale.SaleAmount + cashRefund.RefundAmount,
+		TotalAmount:  cashSale.Amount + cashRefund.Amount,
 		Transactions: []parcs.Transaction{cashSale, cashRefund},
 	}
 
