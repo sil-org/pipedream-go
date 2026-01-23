@@ -8,6 +8,9 @@ jobs:
   tests:
     name: Tests
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write   # This is required for requesting the JWT for OIDC
+      contents: read    # This is required for actions/checkout.
     steps:
       - uses: actions/checkout@v6
 
@@ -25,6 +28,12 @@ jobs:
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@latest
           govulncheck ./...
+
+      - name: Configure AWS credentials for integration test
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: us-east-1
+          role-to-assume: arn:aws:iam::369020531563:role/github-actions-pipedream-go
 
       - name: Test
         run: go test ./...

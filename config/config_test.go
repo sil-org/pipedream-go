@@ -24,3 +24,14 @@ func TestSetStructField(t *testing.T) {
 		t.Errorf("SetStructField() did not set the string field")
 	}
 }
+
+func TestReadParameterStore(t *testing.T) {
+	cfg := struct {
+		NetSuiteRealm string
+	}{}
+
+	config.ReadParameterStore("/pipedream/dev", &cfg)
+	if cfg.NetSuiteRealm == "" {
+		t.Errorf("ReadParameterStore() did not set NetSuiteRealm")
+	}
+}
