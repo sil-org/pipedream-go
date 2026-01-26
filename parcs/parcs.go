@@ -2,11 +2,98 @@ package parcs
 
 import (
 	"bytes"
+	"context"
+	"encoding/json"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
+	"log"
+	"math"
+	"net"
+	"net/http"
+	"os"
+	"path"
+	"reflect"
+	"strconv"
+	"strings"
+	"sync"
 	"time"
+
+	"github.com/dghubble/oauth1"
+	"github.com/kelseyhightower/envconfig"
+	"github.com/pkg/sftp"
+	"golang.org/x/crypto/ssh"
+
+	"github.com/sil-org/pipedream-go/config"
 )
+
+const MaxConcurrent = 5 // change this to adjust concurrency
+
+const (
+	CashRefund      = "CashRfnd"
+	CashSale        = "CashSale"
+	CustomerDeposit = "CustDep"
+	CustomerRefund  = "CustRfnd"
+)
+
+type Config struct {
+	NetSuiteConsumerKey    string `split_words:"true"`
+	NetSuiteConsumerSecret string `split_words:"true"`
+	NetSuiteToken          string `split_words:"true"`
+	NetSuiteTokenSecret    string `split_words:"true"`
+	NetSuiteRealm          string `split_words:"true"`
+	NetSuiteSavedSearchURL string `split_words:"true"`
+	NetSuiteSearchID       string `split_words:"true"`
+	SFTPUsername           string `split_words:"true"`
+	SFTPHost               string `split_words:"true"`
+	SFTPPrivateKey         string `split_words:"true"`
+	SFTPDirectory          string `split_words:"true"`
+
+	client *http.Client
+}
+
+type SearchResponse struct {
+	Results []SearchRecord `json:"results"`
+}
+
+type SearchRecord struct {
+	RecordType string `json:"recordType"`
+	ID         string `json:"id"` // not used
+	Values     struct {
+		InternalID                        []SelectValue `json:"internalid"`
+		Type                              []SelectValue `json:"type"`
+		SubsidiaryNoHierarchy             []SelectValue `json:"subsidiarynohierarchy"`
+		Subsidiary                        []SelectValue `json:"subsidiary"`
+		TransactionDate                   string        `json:"trandate"`
+		PostingPeriod                     []SelectValue `json:"postingperiod"`
+		TransactionNumber                 string        `json:"transactionnumber"`
+		TranID                            string        `json:"tranid"`
+		Entity                            []SelectValue `json:"entity"`
+		Memo                              string        `json:"memo"`
+		CustbodyForParcs                  bool          `json:"custbody_for_parcs"`
+		CustcolParcsTranTypeCode          []SelectValue `json:"custcol_parcs_tran_type_code"`
+		Custcol1                          string        `json:"custcol1"`
+		CustbodyParcsCodeBody             []any         `json:"custbody_parcs_code_body"`
+		CustbodyParcsRefBody              string        `json:"custbody_parcs_ref_body"`
+		ItemDisplayName                   string        `json:"item.displayname"`
+		TaxAmount                         string        `json:"taxamount"`
+		NetAmountNoTax                    string        `json:"netamountnotax"`
+		Amount                            string        `json:"amount"`
+		CreditAmount                      string        `json:"creditamount"`
+		DebitAmount                       string        `json:"debitamount"`
+		CustomerInternalID                []SelectValue `json:"customer.internalid"`
+		CustomerCustentitySILCustCategory []SelectValue `json:"customer.custentity_sil_cust_category"`
+		CustomerEntityID                  string        `json:"customer.entityid"`
+		CustomerExternalID                []SelectValue `json:"customer.externalid"`
+		SubsidiaryCustRecord155           string        `json:"subsidiary.custrecord155"`
+	} `json:"values"`
+}
+
+type SelectValue struct {
+	Value string `json:"value"`
+	Text  string `json:"text"`
+}
 
 // Transaction defines a transaction after being read from NetSuite, but before writing to XML.
 type Transaction struct {
@@ -61,6 +148,360 @@ type PMISTran struct {
 type XMLDocument struct {
 	Name    string `json:"filename"`
 	Content string `json:"content"`
+}
+
+// GetConfig reads from AWS Systems Manager Parameter Store and returns a Config structure for use by other functions
+// in this package.
+func GetConfig(ctx context.Context) (Config, error) {
+	var cfg Config
+	config.ReadParameterStore(os.Getenv("PARAMETER_STORE_PREFIX"), &cfg)
+
+	if err := envconfig.Process("", &cfg); err != nil {
+		return Config{}, err
+	}
+
+	oauthConfig := oauth1.NewConfig(cfg.NetSuiteConsumerKey, cfg.NetSuiteConsumerSecret)
+	oauthConfig.Realm = cfg.NetSuiteRealm
+	oauthConfig.Signer = &oauth1.HMAC256Signer{ConsumerSecret: cfg.NetSuiteConsumerSecret}
+
+	token := oauth1.NewToken(cfg.NetSuiteToken, cfg.NetSuiteTokenSecret)
+	cfg.client = oauthConfig.Client(ctx, token)
+
+	if err := validateConfig(cfg); err != nil {
+		return Config{}, err
+	}
+
+	return cfg, nil
+}
+
+// validateConfig checks that all the config fields have been set. It doesn't ensure correctness, but merely that they
+// are not blank.
+func validateConfig(cfg Config) error {
+	v := reflect.ValueOf(cfg)
+	t := v.Type()
+	if v.Kind() != reflect.Struct {
+		return fmt.Errorf("expected struct got %s", t.Name())
+	}
+
+	var zeroFields []string
+	for i := 0; i < v.NumField(); i++ {
+		field := v.Field(i)
+		if field.IsZero() {
+			zeroFields = append(zeroFields, t.Field(i).Name)
+		}
+	}
+
+	if len(zeroFields) > 0 {
+		return fmt.Errorf("missing configuration for: %s", strings.Join(zeroFields, ", "))
+	}
+	return nil
+}
+
+// DoSavedSearch calls the configured NetSuite saved search and decodes the response to a SearchResponse.
+func DoSavedSearch(ctx context.Context, cfg Config) (SearchResponse, error) {
+	payload := strings.NewReader(fmt.Sprintf(`{"searchID":"%s"}`, cfg.NetSuiteSearchID))
+	resp, err := cfg.client.Post(cfg.NetSuiteSavedSearchURL, "application/json", payload)
+	if err != nil {
+		return SearchResponse{}, fmt.Errorf("call failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return SearchResponse{}, fmt.Errorf("body read failed: %w", err)
+	}
+
+	if resp.StatusCode != 200 {
+		return SearchResponse{}, fmt.Errorf("call failed with status code %d, body: %s", resp.StatusCode, body)
+	}
+	return decodeResponse(bytes.NewReader(body))
+}
+
+// decodeResponse performs the JSON decode for the NetSuite ParCS saved search.
+func decodeResponse(r io.Reader) (SearchResponse, error) {
+	var response SearchResponse
+	decoder := json.NewDecoder(r)
+	err := decoder.Decode(&response)
+	if err != nil {
+		return SearchResponse{}, fmt.Errorf("NetSuite API body failed to unmarshal: %w", err)
+	}
+	return response, nil
+}
+
+func TransformSearchResponse(response SearchResponse) []Transaction {
+	rows := make([]Transaction, len(response.Results))
+	for i, r := range response.Results {
+		v := r.Values
+
+		tranType := firstValue(v.Type)
+		taxAmount := parseAmount(v.TaxAmount)
+		creditAmount := parseAmount(v.CreditAmount)
+		debitAmount := parseAmount(v.DebitAmount)
+
+		amount := 0
+		switch tranType {
+		case CustomerDeposit:
+			amount = creditAmount
+		case CustomerRefund:
+			amount = -debitAmount
+		case CashSale:
+			amount = creditAmount + taxAmount
+		case CashRefund:
+			amount = taxAmount - debitAmount
+		}
+
+		t := Transaction{}
+
+		t.NetSuiteID = firstValue(v.InternalID)
+		t.CustomerExternalID = firstValue(v.CustomerExternalID)
+		t.Memo = v.Memo
+		t.SubsidiaryExternalID = v.SubsidiaryCustRecord155
+		tranDate, err := time.Parse("01/02/2006", v.TransactionDate)
+		if err != nil {
+			log.Print("failed to parse transaction date: ", err)
+		}
+		t.TranDate = tranDate
+		t.TranID = v.TranID
+		t.Amount = amount
+		t.ParCSReference = v.CustbodyParcsRefBody // This is always blank. Is it the right field?
+		t.CustomerCategory = firstValue(v.CustomerCustentitySILCustCategory)
+		t.ParCSTranCode = firstText(v.CustcolParcsTranTypeCode)
+		t.TranType = tranType
+
+		rows[i] = t
+	}
+	return rows
+}
+
+func firstValue(v []SelectValue) string {
+	if len(v) == 0 {
+		return ""
+	}
+	return v[0].Value
+}
+
+func firstText(v []SelectValue) string {
+	if len(v) == 0 {
+		return ""
+	}
+	return v[0].Text
+}
+
+func parseAmount(s string) int {
+	f, err := strconv.ParseFloat(s, 32)
+	if err != nil {
+		log.Printf("failed to parse float from string: %s", s)
+		return 0
+	}
+	return int(math.Round(f * 100))
+}
+
+func GroupTransactions(transactions []Transaction) ([]SubsidiaryTransactions, error) {
+	groupedTransactions := map[string][]Transaction{}
+	totals := map[string]int{}
+	for _, t := range transactions {
+		totals[t.SubsidiaryExternalID] = totals[t.SubsidiaryExternalID] + t.Amount
+		groupedTransactions[t.SubsidiaryExternalID] = append(groupedTransactions[t.SubsidiaryExternalID], t)
+	}
+
+	totalTransactions := 0
+	t := make([]SubsidiaryTransactions, 0, len(groupedTransactions))
+	for subsidiary := range groupedTransactions {
+		t = append(t, SubsidiaryTransactions{
+			Subsidiary:   subsidiary,
+			TotalAmount:  totals[subsidiary],
+			Transactions: groupedTransactions[subsidiary],
+		})
+		totalTransactions += len(groupedTransactions[subsidiary])
+	}
+	if len(transactions) != totalTransactions {
+		return nil, fmt.Errorf("total number of transactions in groups is not correct, expected %d, got %d",
+			len(transactions), totalTransactions)
+	}
+	return t, nil
+}
+
+func MarkTransactionsSent(ctx context.Context, transactions []Transaction, cfg Config) error {
+	sem := make(chan struct{}, min(len(transactions), MaxConcurrent))
+	errCh := make(chan error, len(transactions))
+	var wg sync.WaitGroup
+
+	tMap := make(map[string]*Transaction, len(transactions))
+	for i, t := range transactions {
+		if _, ok := tMap[t.NetSuiteID]; ok {
+			log.Printf("skipping duplicate transaction: %s", t.NetSuiteID)
+			continue
+		}
+		tMap[t.NetSuiteID] = &transactions[i]
+	}
+
+	for _, t := range tMap {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		sem <- struct{}{}
+		wg.Add(1)
+
+		go func(t *Transaction) {
+			defer wg.Done()
+			defer func() { <-sem }()
+
+			log.Printf("updating NetSuite transaction %v", t.NetSuiteID)
+			if err := setTransactionSentDate(t, cfg); err != nil {
+				errCh <- fmt.Errorf("failed to update %v transaction %v: %w", t.TranType, t.NetSuiteID, err)
+			}
+		}(t)
+	}
+
+	wg.Wait()
+	close(errCh)
+
+	if len(errCh) > 0 {
+		errs := make([]error, 0, len(errCh))
+		for err := range errCh {
+			errs = append(errs, err)
+		}
+		return errors.Join(errs...)
+	}
+
+	return nil
+}
+
+func setTransactionSentDate(t *Transaction, cfg Config) error {
+	requestBody := fmt.Sprintf(`{"custbody_sent_to_parcs":true,"custbody_date_sent_to_parcs":"%s"}`,
+		time.Now().UTC().Format(time.RFC3339))
+
+	transactionTypes := map[string]string{
+		CashRefund:      "cashRefund",
+		CashSale:        "cashSale",
+		CustomerDeposit: "customerDeposit",
+		CustomerRefund:  "customerRefund",
+	}
+	endpoint, ok := transactionTypes[t.TranType]
+	if !ok {
+		return fmt.Errorf("invalid transaction type: %v", t.TranType)
+	}
+
+	host := strings.Replace(cfg.NetSuiteRealm, "_", "-", 1)
+	url := fmt.Sprintf("https://%s.suitetalk.api.netsuite.com/services/rest/record/v1/%s/%s",
+		host, endpoint, t.NetSuiteID)
+	req, err := http.NewRequest(http.MethodPatch, url, strings.NewReader(requestBody))
+	if err != nil {
+		return fmt.Errorf("failed to create transaction update request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := cfg.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send transaction update: %w", err)
+	}
+	defer func() {
+		err = resp.Body.Close()
+		if err != nil {
+			log.Println("failed to close response body")
+		}
+	}()
+
+	if resp.StatusCode >= 300 {
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return fmt.Errorf("body read failed: %w", err)
+		}
+		return fmt.Errorf("call failed with status code %d, body: %s", resp.StatusCode, body)
+	}
+
+	return nil
+}
+
+// connectSSH creates an ssh.Client connected to host:port using the provided username and privateKeyPath.
+func connectSSH(user, host, key string) (*ssh.Client, error) {
+	key = strings.ReplaceAll(key, `\n`, "\n")
+
+	log.Printf("... key starts with %q and ends with %q", key[0:min(48, len(key))], key[max(0, len(key)-48):])
+	signer, err := ssh.ParsePrivateKey([]byte(key))
+	if err != nil {
+		return nil, fmt.Errorf("parse private key: %w", err)
+	}
+
+	// WARNING: this disables host key checking. Use known_hosts in production!
+	hostKeyCallback := ssh.InsecureIgnoreHostKey()
+
+	sshConfig := &ssh.ClientConfig{
+		User:            user,
+		Auth:            []ssh.AuthMethod{ssh.PublicKeys(signer)},
+		HostKeyCallback: hostKeyCallback,
+		Timeout:         15 * time.Second,
+	}
+
+	addr := net.JoinHostPort(host, "22")
+	client, err := ssh.Dial("tcp", addr, sshConfig)
+	if err != nil {
+		return nil, fmt.Errorf("ssh dial (addr: %s, user: %s): %w", addr, user, err)
+	}
+
+	return client, nil
+}
+
+// writeDocumentsToSFTP writes each XML document to remoteBaseDir/<name>.xml on the SFTP server.
+// It writes to a temp file first and then renames for atomicity.
+func writeDocumentsToSFTP(sftpClient *sftp.Client, data []XMLDocument, remoteBaseDir string) error {
+	err := sftpClient.MkdirAll(remoteBaseDir)
+	if err != nil {
+		return fmt.Errorf("mkdirall %s: %w", remoteBaseDir, err)
+	}
+
+	for _, x := range data {
+		remotePath := path.Join(remoteBaseDir, x.Name)
+		tmpPath := remotePath + ".tmp"
+
+		var f *sftp.File
+		f, err = sftpClient.OpenFile(tmpPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC)
+		if err != nil {
+			return fmt.Errorf("open tmp remote file %s: %w", tmpPath, err)
+		}
+
+		_, err = io.Copy(f, bytes.NewReader([]byte(x.Content)))
+		if err != nil {
+			return fmt.Errorf("write tmp file %s: %w", tmpPath, err)
+		}
+
+		err = f.Close()
+		if err != nil {
+			return fmt.Errorf("close tmp file %s: %w", tmpPath, err)
+		}
+
+		if err := sftpClient.Rename(tmpPath, remotePath); err != nil {
+			return fmt.Errorf("rename %s -> %s: %w", tmpPath, remotePath, err)
+		}
+
+		log.Printf("wrote %s (%d bytes)", remotePath, len(x.Content))
+	}
+
+	return nil
+}
+
+func SendToWorkday(cfg Config, data []XMLDocument) error {
+	sshClient, err := connectSSH(cfg.SFTPUsername, cfg.SFTPHost, cfg.SFTPPrivateKey)
+	if err != nil {
+		return fmt.Errorf("failed to connect SSH: %w", err)
+	}
+	defer sshClient.Close()
+
+	sftpClient, err := sftp.NewClient(sshClient)
+	if err != nil {
+		return fmt.Errorf("failed to create sftp client: %w", err)
+	}
+	defer sftpClient.Close()
+
+	if err = writeDocumentsToSFTP(sftpClient, data, cfg.SFTPDirectory); err != nil {
+		return fmt.Errorf("failed to write data: %w", err)
+	}
+
+	return nil
 }
 
 // createXMLDocuments converts a list of SubsidiaryTransactions to a list of XMLDocument
