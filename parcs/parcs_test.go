@@ -239,3 +239,29 @@ func Test_writeXML(t *testing.T) {
 		t.Errorf("diff: %v", cmp.Diff(got, xmlSample))
 	}
 }
+
+func Test_parseAmount(t *testing.T) {
+	tests := []struct {
+		s    string
+		want int
+	}{
+		{s: "0", want: 0},
+		{s: "10", want: 1000},
+		{s: "-1", want: -100},
+		{s: "0.01", want: 1},
+		{s: "0.05", want: 5},
+		{s: "0.10", want: 10},
+		{s: "-0.01", want: -1},
+		{s: "-0.05", want: -5},
+		{s: "-0.10", want: -10},
+		{s: ".01", want: 1},
+		{s: "-.01", want: -1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.s, func(t *testing.T) {
+			if got := parseAmount(tt.s); got != tt.want {
+				t.Errorf("parseAmount() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
