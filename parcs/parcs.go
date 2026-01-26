@@ -60,34 +60,23 @@ type SearchResponse struct {
 type SearchRecord struct {
 	RecordType string `json:"recordType"`
 	ID         string `json:"id"` // not used
-	Values     struct {
-		InternalID                        []SelectValue `json:"internalid"`
-		Type                              []SelectValue `json:"type"`
-		SubsidiaryNoHierarchy             []SelectValue `json:"subsidiarynohierarchy"`
-		Subsidiary                        []SelectValue `json:"subsidiary"`
-		TransactionDate                   string        `json:"trandate"`
-		PostingPeriod                     []SelectValue `json:"postingperiod"`
-		TransactionNumber                 string        `json:"transactionnumber"`
-		TranID                            string        `json:"tranid"`
-		Entity                            []SelectValue `json:"entity"`
-		Memo                              string        `json:"memo"`
-		CustbodyForParcs                  bool          `json:"custbody_for_parcs"`
-		CustcolParcsTranTypeCode          []SelectValue `json:"custcol_parcs_tran_type_code"`
-		Custcol1                          string        `json:"custcol1"`
-		CustbodyParcsCodeBody             []any         `json:"custbody_parcs_code_body"`
-		CustbodyParcsRefBody              string        `json:"custbody_parcs_ref_body"`
-		ItemDisplayName                   string        `json:"item.displayname"`
-		TaxAmount                         string        `json:"taxamount"`
-		NetAmountNoTax                    string        `json:"netamountnotax"`
-		Amount                            string        `json:"amount"`
-		CreditAmount                      string        `json:"creditamount"`
-		DebitAmount                       string        `json:"debitamount"`
-		CustomerInternalID                []SelectValue `json:"customer.internalid"`
-		CustomerCustentitySILCustCategory []SelectValue `json:"customer.custentity_sil_cust_category"`
-		CustomerEntityID                  string        `json:"customer.entityid"`
-		CustomerExternalID                []SelectValue `json:"customer.externalid"`
-		SubsidiaryCustRecord155           string        `json:"subsidiary.custrecord155"`
-	} `json:"values"`
+	Values     Values `json:"values"`
+}
+
+type Values struct {
+	InternalID                        []SelectValue `json:"internalid"`
+	Type                              []SelectValue `json:"type"`
+	TransactionDate                   string        `json:"trandate"`
+	TranID                            string        `json:"tranid"`
+	Memo                              string        `json:"memo"`
+	CustcolParcsTranTypeCode          []SelectValue `json:"custcol_parcs_tran_type_code"`
+	CustbodyParcsRefBody              string        `json:"custbody_parcs_ref_body"`
+	TaxAmount                         string        `json:"taxamount"`
+	CreditAmount                      string        `json:"creditamount"`
+	DebitAmount                       string        `json:"debitamount"`
+	CustomerCustentitySILCustCategory []SelectValue `json:"customer.custentity_sil_cust_category"`
+	CustomerExternalID                []SelectValue `json:"customer.externalid"`
+	SubsidiaryCustRecord155           string        `json:"subsidiary.custrecord155"`
 }
 
 type SelectValue struct {
