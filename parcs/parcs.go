@@ -344,7 +344,13 @@ func MarkTransactionsSent(ctx context.Context, transactions []Transaction, cfg C
 			defer func() { <-sem }()
 
 			log.Printf("updating NetSuite transaction %v", t.NetSuiteID)
-			if err := setTransactionSentDate(t, cfg); err != nil {
+
+			url, err := transactionURL(t.NetSuiteID, t.TranType, cfg.NetSuiteRealm)
+			if err != nil {
+				errCh <- err
+			}
+
+			if err := setTransactionSentDate(cfg, url); err != nil {
 				errCh <- fmt.Errorf("failed to update %v transaction %v: %w", t.TranType, t.NetSuiteID, err)
 			}
 		}(t)
@@ -364,24 +370,28 @@ func MarkTransactionsSent(ctx context.Context, transactions []Transaction, cfg C
 	return nil
 }
 
-func setTransactionSentDate(t *Transaction, cfg Config) error {
-	requestBody := fmt.Sprintf(`{"custbody_sent_to_parcs":true,"custbody_date_sent_to_parcs":"%s"}`,
-		time.Now().UTC().Format(time.RFC3339))
-
+func transactionURL(transactionID, transactionType, realm string) (string, error) {
 	transactionTypes := map[string]string{
 		CashRefund:      "cashRefund",
 		CashSale:        "cashSale",
 		CustomerDeposit: "customerDeposit",
 		CustomerRefund:  "customerRefund",
 	}
-	endpoint, ok := transactionTypes[t.TranType]
+	endpoint, ok := transactionTypes[transactionType]
 	if !ok {
-		return fmt.Errorf("invalid transaction type: %v", t.TranType)
+		return "", fmt.Errorf("invalid transaction type: %v", transactionType)
 	}
 
-	host := strings.Replace(cfg.NetSuiteRealm, "_", "-", 1)
+	host := strings.Replace(realm, "_", "-", 1)
 	url := fmt.Sprintf("https://%s.suitetalk.api.netsuite.com/services/rest/record/v1/%s/%s",
-		host, endpoint, t.NetSuiteID)
+		host, endpoint, transactionID)
+	return url, nil
+}
+
+func setTransactionSentDate(cfg Config, url string) error {
+	requestBody := fmt.Sprintf(`{"custbody_sent_to_parcs":true,"custbody_date_sent_to_parcs":"%s"}`,
+		time.Now().UTC().Format(time.RFC3339))
+
 	req, err := http.NewRequest(http.MethodPatch, url, strings.NewReader(requestBody))
 	if err != nil {
 		return fmt.Errorf("failed to create transaction update request: %w", err)

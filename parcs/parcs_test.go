@@ -570,3 +570,64 @@ func Test_decodeResponse(t *testing.T) {
 		})
 	}
 }
+
+func Test_transactionURL(t *testing.T) {
+	const transactionID = "101"
+	const realm = "1234567"
+
+	tests := []struct {
+		name            string
+		transactionType string
+		want            string
+		wantErr         string
+	}{
+		{
+			name:            "invalid type",
+			transactionType: "x",
+			wantErr:         "invalid transaction type: x",
+		},
+		{
+			name:            "cash refund",
+			transactionType: CashRefund,
+			want:            "https://1234567.suitetalk.api.netsuite.com/services/rest/record/v1/cashRefund/101",
+		},
+		{
+			name:            "cash sale",
+			transactionType: CashSale,
+			want:            "https://1234567.suitetalk.api.netsuite.com/services/rest/record/v1/cashSale/101",
+		},
+		{
+			name:            "customer deposit",
+			transactionType: CustomerDeposit,
+			want:            "https://1234567.suitetalk.api.netsuite.com/services/rest/record/v1/customerDeposit/101",
+		},
+		{
+			name:            "customer refund",
+			transactionType: CustomerRefund,
+			want:            "https://1234567.suitetalk.api.netsuite.com/services/rest/record/v1/customerRefund/101",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := transactionURL(transactionID, tt.transactionType, realm)
+			if tt.wantErr != "" {
+				if err == nil {
+					t.Errorf("expected error: %v", tt.wantErr)
+				}
+				if tt.wantErr != err.Error() {
+					t.Errorf("incorrect error: %v, expected: %v", err, tt.wantErr)
+				}
+				return
+			}
+
+			if err != nil {
+				t.Errorf("unexpected error: %v", err)
+				return
+			}
+
+			if got != tt.want {
+				t.Errorf("transactionURL() got = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
