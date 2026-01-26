@@ -240,6 +240,46 @@ func Test_writeXML(t *testing.T) {
 	}
 }
 
+func Test_firstValue(t *testing.T) {
+	tests := []struct {
+		name string
+		v    []SelectValue
+		want string
+	}{
+		{name: "nil", v: nil, want: ""},
+		{name: "none", v: []SelectValue{}, want: ""},
+		{name: "one", v: []SelectValue{{Value: "v", Text: "t"}}, want: "v"},
+		{name: "two", v: []SelectValue{{Value: "v1", Text: "t1"}, {Value: "v2", Text: "t2"}}, want: "v1"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := firstValue(tt.v); got != tt.want {
+				t.Errorf("firstValue() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func Test_firstText(t *testing.T) {
+	tests := []struct {
+		name string
+		v    []SelectValue
+		want string
+	}{
+		{name: "nil", v: nil, want: ""},
+		{name: "none", v: []SelectValue{}, want: ""},
+		{name: "one", v: []SelectValue{{Value: "v", Text: "t"}}, want: "t"},
+		{name: "two", v: []SelectValue{{Value: "v1", Text: "t1"}, {Value: "v2", Text: "t2"}}, want: "t1"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := firstText(tt.v); got != tt.want {
+				t.Errorf("firstText() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func Test_parseAmount(t *testing.T) {
 	tests := []struct {
 		s    string
