@@ -10,10 +10,8 @@ import (
 	"io"
 	"log"
 	"math"
-	"net"
 	"net/http"
 	"os"
-	"path"
 	"reflect"
 	"strconv"
 	"strings"
@@ -23,9 +21,9 @@ import (
 	"github.com/dghubble/oauth1"
 	"github.com/kelseyhightower/envconfig"
 	"github.com/pkg/sftp"
-	"golang.org/x/crypto/ssh"
 
 	"github.com/sil-org/pipedream-go/config"
+	"github.com/sil-org/pipedream-go/ssh"
 )
 
 const MaxConcurrent = 5 // change this to adjust concurrency
@@ -132,15 +130,6 @@ type PMISTran struct {
 	OriginatingPerson    string  `xml:"Originating_Person"`
 	OPPTransactionDate   string  `xml:"OPP_Transaction_Date"`
 }
-
-// XMLDocument represents a single XML document.
-type XMLDocument struct {
-	Name    string `json:"filename"`
-	Content string `json:"content"`
-}
-
-// sshDial is a function variable to make it possible to unit test SSH code
-var sshDial = ssh.Dial
 
 // GetConfig reads from AWS Systems Manager Parameter Store and returns a Config structure for use by other functions
 // in this package.
@@ -428,73 +417,8 @@ func httpRequest(client *http.Client, method, url, body string) error {
 	return nil
 }
 
-// connectSSH creates an ssh.Client connected to host:port using the provided username and privateKeyPath.
-func connectSSH(user, host, key string) (*ssh.Client, error) {
-	key = strings.ReplaceAll(key, `\n`, "\n")
-	signer, err := ssh.ParsePrivateKey([]byte(key))
-	if err != nil {
-		return nil, fmt.Errorf("parse private key: %w", err)
-	}
-
-	// WARNING: this disables host key checking. Use known_hosts in production!
-	hostKeyCallback := ssh.InsecureIgnoreHostKey()
-
-	sshConfig := &ssh.ClientConfig{
-		User:            user,
-		Auth:            []ssh.AuthMethod{ssh.PublicKeys(signer)},
-		HostKeyCallback: hostKeyCallback,
-		Timeout:         15 * time.Second,
-	}
-
-	addr := net.JoinHostPort(host, "22")
-	client, err := sshDial("tcp", addr, sshConfig)
-	if err != nil {
-		return nil, fmt.Errorf("ssh dial (addr: %s, user: %s): %w", addr, user, err)
-	}
-
-	return client, nil
-}
-
-// writeDocumentsToSFTP writes each XML document to remoteBaseDir/<name>.xml on the SFTP server.
-// It writes to a temp file first and then renames for atomicity.
-func writeDocumentsToSFTP(sftpClient *sftp.Client, data []XMLDocument, remoteBaseDir string) error {
-	err := sftpClient.MkdirAll(remoteBaseDir)
-	if err != nil {
-		return fmt.Errorf("mkdirall %s: %w", remoteBaseDir, err)
-	}
-
-	for _, x := range data {
-		remotePath := path.Join(remoteBaseDir, x.Name)
-		tmpPath := remotePath + ".tmp"
-
-		var f *sftp.File
-		f, err = sftpClient.OpenFile(tmpPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC)
-		if err != nil {
-			return fmt.Errorf("open tmp remote file %s: %w", tmpPath, err)
-		}
-
-		_, err = io.Copy(f, bytes.NewReader([]byte(x.Content)))
-		if err != nil {
-			return fmt.Errorf("write tmp file %s: %w", tmpPath, err)
-		}
-
-		err = f.Close()
-		if err != nil {
-			return fmt.Errorf("close tmp file %s: %w", tmpPath, err)
-		}
-
-		if err := sftpClient.Rename(tmpPath, remotePath); err != nil {
-			return fmt.Errorf("rename %s -> %s: %w", tmpPath, remotePath, err)
-		}
-
-		log.Printf("wrote %s (%d bytes)", remotePath, len(x.Content))
-	}
-
-	return nil
-}
-
-func SendToWorkday(cfg Config, data []XMLDocument) error {
-	sshClient, err := connectSSH(cfg.SFTPUsername, cfg.SFTPHost, cfg.SFTPPrivateKey)
+func SendToWorkday(cfg Config, data []ssh.Document) error {
+	sshClient, err := ssh.Connect(cfg.SFTPUsername, cfg.SFTPHost, cfg.SFTPPrivateKey)
 	if err != nil {
 		return fmt.Errorf("failed to connect SSH: %w", err)
 	}
@@ -516,7 +440,7 @@ func SendToWorkday(cfg Config, data []XMLDocument) error {
 		}
 	}()
 
-	if err = writeDocumentsToSFTP(sftpClient, data, cfg.SFTPDirectory); err != nil {
+	if err = ssh.WriteDocumentsToSFTP(sftpClient, data, cfg.SFTPDirectory); err != nil {
 		return fmt.Errorf("failed to write data: %w", err)
 	}
 
@@ -524,17 +448,17 @@ func SendToWorkday(cfg Config, data []XMLDocument) error {
 }
 
 // createXMLDocuments converts a list of SubsidiaryTransactions to a list of XMLDocument
-func createXMLDocuments(st []SubsidiaryTransactions) ([]XMLDocument, error) {
+func createXMLDocuments(st []SubsidiaryTransactions) ([]ssh.Document, error) {
 	today := time.Now().Format(time.RFC3339)
 
-	docs := make([]XMLDocument, len(st))
+	docs := make([]ssh.Document, len(st))
 	for i, t := range st {
 		b, err := createXMLDocument(t)
 		if err != nil {
 			return nil, fmt.Errorf("XML error on %s: %w", t.Subsidiary, err)
 		}
 
-		docs[i] = XMLDocument{
+		docs[i] = ssh.Document{
 			Name:    fmt.Sprintf("%s_%s.xml", t.Subsidiary, today),
 			Content: string(b),
 		}
