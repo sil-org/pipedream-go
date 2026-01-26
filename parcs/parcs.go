@@ -204,7 +204,12 @@ func DoSavedSearch(ctx context.Context, cfg Config) (SearchResponse, error) {
 	if err != nil {
 		return SearchResponse{}, fmt.Errorf("call failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		err := resp.Body.Close()
+		if err != nil {
+			log.Fatal(err)
+		}
+	}()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -489,13 +494,23 @@ func SendToWorkday(cfg Config, data []XMLDocument) error {
 	if err != nil {
 		return fmt.Errorf("failed to connect SSH: %w", err)
 	}
-	defer sshClient.Close()
+	defer func() {
+		err := sshClient.Close()
+		if err != nil {
+			log.Fatalf("SSH client failure: %s", err)
+		}
+	}()
 
 	sftpClient, err := sftp.NewClient(sshClient)
 	if err != nil {
 		return fmt.Errorf("failed to create sftp client: %w", err)
 	}
-	defer sftpClient.Close()
+	defer func() {
+		err := sftpClient.Close()
+		if err != nil {
+			log.Fatalf("SFTP client failure: %s", err)
+		}
+	}()
 
 	if err = writeDocumentsToSFTP(sftpClient, data, cfg.SFTPDirectory); err != nil {
 		return fmt.Errorf("failed to write data: %w", err)
