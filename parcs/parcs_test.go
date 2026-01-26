@@ -3,6 +3,7 @@ package parcs
 import (
 	"bytes"
 	"net/http"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -70,6 +71,181 @@ var cashRefund = Transaction{
 	CustomerCategory:     "10",
 	ParCSTranCode:        "MC",
 	TranType:             "CashRfnd",
+}
+
+const sampleSearchResponse = `{"results":[` + sampleCashRefundJSON + "," + sampleCashSaleJSON + `]}`
+
+const sampleCashRefundJSON = `{
+    "recordType" : "cashrefund",
+    "id" : "123456",
+    "values" : {
+      "internalid" : [ {
+        "value" : "123456",
+        "text" : "123456"
+      } ],
+      "type" : [ {
+        "value" : "CashRfnd",
+        "text" : "Cash Refund"
+      } ],
+      "subsidiarynohierarchy" : [ {
+        "value" : "7",
+        "text" : "Acme Corp"
+      } ],
+      "subsidiary" : [ {
+        "value" : "7",
+        "text" : "*Acme Corp : *Acme : Acme Corporation"
+      } ],
+      "trandate" : "08/01/2025",
+      "postingperiod" : [ {
+        "value" : "120",
+        "text" : "Aug 2025"
+      } ],
+      "transactionnumber" : "CASHRFND3096",
+      "tranid" : "RFND3096",
+      "entity" : [ {
+        "value" : "13406",
+        "text" : "ParCS (777777), Smith, John & Jane"
+      } ],
+      "memo" : "Reverse Smith FY 2025 August ParCS Payment (CS22222)",
+      "custbody_for_parcs" : true,
+      "custcol_parcs_tran_type_code" : [ {
+        "value" : "1",
+        "text" : "MC"
+      } ],
+      "custcol1" : "",
+      "custbody_parcs_code_body" : [ ],
+      "custbody_parcs_ref_body" : "",
+      "item.displayname" : "Facility Rental",
+      "taxamount" : "",
+      "netamountnotax" : "-730.00",
+      "amount" : "-730.00",
+      "creditamount" : "",
+      "debitamount" : "730.00",
+      "customer.internalid" : [ {
+        "value" : "33333",
+        "text" : "33333"
+      } ],
+      "customer.custentity_sil_cust_category" : [ {
+        "value" : "10",
+        "text" : "Acme Staff for ParCS"
+      } ],
+      "customer.entityid" : "ParCS (777777), Smith, John & Jane",
+      "customer.externalid" : [ {
+        "value" : "777777_C",
+        "text" : "777777_C"
+      } ],
+      "subsidiary.custrecord155" : "ACC"
+    }
+  }`
+
+const sampleCashSaleJSON = `{
+    "recordType" : "cashsale",
+    "id" : "987654",
+    "values" : {
+      "internalid" : [ {
+        "value" : "987654",
+        "text" : "987654"
+      } ],
+      "type" : [ {
+        "value" : "CashSale",
+        "text" : "Cash Sale/Donation"
+      } ],
+      "subsidiarynohierarchy" : [ {
+        "value" : "7",
+        "text" : "Acme Corporation"
+      } ],
+      "subsidiary" : [ {
+        "value" : "7",
+        "text" : "*Acme Corp : *Acme : Acme Corporation"
+      } ],
+      "trandate" : "08/13/2025",
+      "postingperiod" : [ {
+        "value" : "120",
+        "text" : "Aug 2025"
+      } ],
+      "transactionnumber" : "CASHSALE95107",
+      "tranid" : "CS95107",
+      "entity" : [ {
+        "value" : "6786",
+        "text" : "Johnson Manufacturing-ParCS"
+      } ],
+      "memo" : "Johnson Manufacturing: JMC 11010 WEVACF\nAIG Travel Assist Inv Jack Johnson ",
+      "custbody_for_parcs" : true,
+      "custcol_parcs_tran_type_code" : [ ],
+      "custcol1" : "",
+      "custbody_parcs_code_body" : [ ],
+      "custbody_parcs_ref_body" : "",
+      "item.displayname" : "",
+      "taxamount" : "",
+      "netamountnotax" : "-70125.00",
+      "amount" : "-70125.00",
+      "creditamount" : "70125.00",
+      "debitamount" : "",
+      "customer.internalid" : [ {
+        "value" : "6786",
+        "text" : "6786"
+      } ],
+      "customer.custentity_sil_cust_category" : [ {
+        "value" : "2",
+        "text" : "Alliance Organization (ParCS)"
+      } ],
+      "customer.entityid" : "Johnson Manufacturing-ParCS",
+      "customer.externalid" : [ {
+        "value" : "JMC",
+        "text" : "JMC"
+      } ],
+      "subsidiary.custrecord155" : "ACC"
+    }
+  }`
+
+func sampleResponse() SearchResponse {
+	return SearchResponse{
+		Results: []SearchRecord{sampleCashRefund(), sampleCashSale()},
+	}
+}
+
+func sampleCashRefund() SearchRecord {
+	return SearchRecord{
+		RecordType: "cashrefund",
+		ID:         "123456",
+		Values: Values{
+			InternalID:                        []SelectValue{{Value: "123456", Text: "123456"}},
+			Type:                              []SelectValue{{Value: "CashRfnd", Text: "Cash Refund"}},
+			TransactionDate:                   "08/01/2025",
+			TranID:                            "RFND3096",
+			Memo:                              "Reverse Smith FY 2025 August ParCS Payment (CS22222)",
+			CustcolParcsTranTypeCode:          []SelectValue{{Value: "1", Text: "MC"}},
+			CustbodyParcsRefBody:              "",
+			TaxAmount:                         "",
+			CreditAmount:                      "",
+			DebitAmount:                       "730.00",
+			CustomerCustentitySILCustCategory: []SelectValue{{Value: "10", Text: "Acme Staff for ParCS"}},
+			CustomerExternalID:                []SelectValue{{Value: "777777_C", Text: "777777_C"}},
+			SubsidiaryCustRecord155:           "ACC",
+		},
+	}
+}
+
+func sampleCashSale() SearchRecord {
+	return SearchRecord{
+		RecordType: "cashsale",
+		ID:         "987654",
+		Values: Values{
+			InternalID:                        []SelectValue{{Value: "987654", Text: "987654"}},
+			Type:                              []SelectValue{{Value: "CashSale", Text: "Cash Sale/Donation"}},
+			TransactionDate:                   "08/13/2025",
+			TranID:                            "CS95107",
+			Memo:                              "Johnson Manufacturing: JMC 11010 WEVACF\nAIG Travel Assist Inv Jack Johnson ",
+			CustcolParcsTranTypeCode:          []SelectValue{},
+			CustbodyParcsRefBody:              "",
+			TaxAmount:                         "",
+			CreditAmount:                      "70125.00",
+			DebitAmount:                       "",
+			CustomerCustentitySILCustCategory: []SelectValue{{Value: "2", Text: "Alliance Organization (ParCS)"}},
+			CustomerExternalID:                []SelectValue{{Value: "JMC", Text: "JMC"}},
+			SubsidiaryCustRecord155:           "ACC",
+		},
+	}
 }
 
 func Test_createXMLDocuments(t *testing.T) {
@@ -335,6 +511,61 @@ func Test_validateConfig(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if err := validateConfig(tt.cfg); (err != nil) != tt.wantErr {
 				t.Errorf("validateConfig() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func Test_decodeResponse(t *testing.T) {
+	tests := []struct {
+		name    string
+		body    []byte
+		want    SearchResponse
+		wantErr string
+	}{
+		{
+			name:    "nil body",
+			body:    nil,
+			want:    SearchResponse{},
+			wantErr: "NetSuite API body failed to unmarshal: EOF",
+		},
+		{
+			name:    "empty body",
+			body:    []byte{},
+			want:    SearchResponse{},
+			wantErr: "NetSuite API body failed to unmarshal: EOF",
+		},
+		{
+			name: "empty JSON",
+			body: []byte("{}"),
+			want: SearchResponse{},
+		},
+		{
+			name: "sample",
+			body: []byte(sampleSearchResponse),
+			want: sampleResponse(),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := decodeResponse(tt.body)
+			if tt.wantErr != "" {
+				if err == nil {
+					t.Errorf("expected error: %v", tt.wantErr)
+				}
+				if tt.wantErr != err.Error() {
+					t.Errorf("incorrect error: %v, expected: %v", err, tt.wantErr)
+				}
+				return
+			}
+
+			if err != nil {
+				t.Errorf("unexpected error: %v", err)
+				return
+			}
+
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("decodeResponse() got = %v, want %v", got, tt.want)
 			}
 		})
 	}
