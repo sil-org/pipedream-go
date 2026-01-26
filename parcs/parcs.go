@@ -139,6 +139,9 @@ type XMLDocument struct {
 	Content string `json:"content"`
 }
 
+// sshDial is a function variable to make it possible to unit test SSH code
+var sshDial = ssh.Dial
+
 // GetConfig reads from AWS Systems Manager Parameter Store and returns a Config structure for use by other functions
 // in this package.
 func GetConfig(ctx context.Context) (Config, error) {
@@ -428,8 +431,6 @@ func httpRequest(client *http.Client, method, url, body string) error {
 // connectSSH creates an ssh.Client connected to host:port using the provided username and privateKeyPath.
 func connectSSH(user, host, key string) (*ssh.Client, error) {
 	key = strings.ReplaceAll(key, `\n`, "\n")
-
-	log.Printf("... key starts with %q and ends with %q", key[0:min(48, len(key))], key[max(0, len(key)-48):])
 	signer, err := ssh.ParsePrivateKey([]byte(key))
 	if err != nil {
 		return nil, fmt.Errorf("parse private key: %w", err)
@@ -446,7 +447,7 @@ func connectSSH(user, host, key string) (*ssh.Client, error) {
 	}
 
 	addr := net.JoinHostPort(host, "22")
-	client, err := ssh.Dial("tcp", addr, sshConfig)
+	client, err := sshDial("tcp", addr, sshConfig)
 	if err != nil {
 		return nil, fmt.Errorf("ssh dial (addr: %s, user: %s): %w", addr, user, err)
 	}
