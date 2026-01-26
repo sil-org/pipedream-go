@@ -63,13 +63,13 @@ type XMLDocument struct {
 	Content string `json:"content"`
 }
 
-// CreateXMLDocuments converts a list of SubsidiaryTransactions to a list of XMLDocument
-func CreateXMLDocuments(st []SubsidiaryTransactions) ([]XMLDocument, error) {
+// createXMLDocuments converts a list of SubsidiaryTransactions to a list of XMLDocument
+func createXMLDocuments(st []SubsidiaryTransactions) ([]XMLDocument, error) {
 	today := time.Now().Format(time.RFC3339)
 
 	docs := make([]XMLDocument, len(st))
 	for i, t := range st {
-		b, err := CreateXMLDocument(t)
+		b, err := createXMLDocument(t)
 		if err != nil {
 			return nil, fmt.Errorf("XML error on %s: %w", t.Subsidiary, err)
 		}
@@ -82,18 +82,18 @@ func CreateXMLDocuments(st []SubsidiaryTransactions) ([]XMLDocument, error) {
 	return docs, nil
 }
 
-// CreateXMLDocument converts a SubsidiaryTransactions to an XMLDocument
-func CreateXMLDocument(t SubsidiaryTransactions) ([]byte, error) {
+// createXMLDocument converts a SubsidiaryTransactions to an XMLDocument
+func createXMLDocument(t SubsidiaryTransactions) ([]byte, error) {
 	var w bytes.Buffer
-	err := WriteXML(t, &w)
+	err := writeXML(t, &w)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create XML: %w", err)
 	}
 	return w.Bytes(), nil
 }
 
-// WriteXML creates XML data from a SubsidiaryTransactions batch.
-func WriteXML(st SubsidiaryTransactions, w io.Writer) error {
+// writeXML creates XML data from a SubsidiaryTransactions batch.
+func writeXML(st SubsidiaryTransactions, w io.Writer) error {
 	batch := PMISBatch{
 		Header: PMISHeader{
 			BatchCount:    len(st.Transactions),
@@ -104,7 +104,7 @@ func WriteXML(st SubsidiaryTransactions, w io.Writer) error {
 	}
 
 	for i, t := range st.Transactions {
-		batch.Trans[i] = ConvertTransaction(t)
+		batch.Trans[i] = convertTransaction(t)
 	}
 
 	enc := xml.NewEncoder(w)
@@ -120,8 +120,8 @@ func WriteXML(st SubsidiaryTransactions, w io.Writer) error {
 	return nil
 }
 
-// ConvertTransaction makes a PMISTran from a Transaction for the XML generation process.
-func ConvertTransaction(t Transaction) PMISTran {
+// convertTransaction makes a PMISTran from a Transaction for the XML generation process.
+func convertTransaction(t Transaction) PMISTran {
 	tranType := "GT"
 	rpp := ""
 	if t.CustomerCategory == "2" || t.CustomerCategory == "12" {

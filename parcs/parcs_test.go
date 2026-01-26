@@ -1,4 +1,4 @@
-package parcs_test
+package parcs
 
 import (
 	"bytes"
@@ -8,8 +8,6 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-
-	"github.com/sil-org/pipedream-go/parcs"
 )
 
 const xmlSample = `<?xml version="1.0" encoding="UTF-8"?>
@@ -45,7 +43,7 @@ const xmlSample = `<?xml version="1.0" encoding="UTF-8"?>
 	</PMISTran>
 </PMISBatch>`
 
-var cashSale = parcs.Transaction{
+var cashSale = Transaction{
 	NetSuiteID:           "111111",
 	CustomerExternalID:   "223944_XXX",
 	Memo:                 "Sample Transaction Description",
@@ -59,7 +57,7 @@ var cashSale = parcs.Transaction{
 	TranType:             "CashSale",
 }
 
-var cashRefund = parcs.Transaction{
+var cashRefund = Transaction{
 	NetSuiteID:           "111111",
 	CustomerExternalID:   "223944_XXX",
 	Memo:                 "Sample description with <brackets> and 'quotes'",
@@ -74,18 +72,18 @@ var cashRefund = parcs.Transaction{
 }
 
 func Test_createXMLDocuments(t *testing.T) {
-	st := []parcs.SubsidiaryTransactions{{
+	st := []SubsidiaryTransactions{{
 		Subsidiary:   "XYZ",
 		TotalAmount:  cashSale.Amount + cashRefund.Amount,
-		Transactions: []parcs.Transaction{cashSale, cashRefund},
+		Transactions: []Transaction{cashSale, cashRefund},
 	}}
 
-	want := []parcs.XMLDocument{{
+	want := []XMLDocument{{
 		Name:    "XYZ",
 		Content: xmlSample,
 	}}
 
-	got, err := parcs.CreateXMLDocuments(st)
+	got, err := createXMLDocuments(st)
 	if err != nil {
 		t.Errorf("createXMLDocuments() error = %v", err)
 		return
@@ -93,7 +91,7 @@ func Test_createXMLDocuments(t *testing.T) {
 	if !strings.HasPrefix(got[0].Name, st[0].Subsidiary) {
 		t.Error("XML document does not have the expected name, should start with the subsidiary code")
 	}
-	if !cmp.Equal(got[0], want[0], cmpopts.IgnoreFields(parcs.XMLDocument{}, "Name")) {
+	if !cmp.Equal(got[0], want[0], cmpopts.IgnoreFields(XMLDocument{}, "Name")) {
 		t.Error("diff:", cmp.Diff(got[0], want[0]))
 	}
 }
@@ -101,13 +99,13 @@ func Test_createXMLDocuments(t *testing.T) {
 func Test_createXMLDocument(t *testing.T) {
 	tests := []struct {
 		name    string
-		st      parcs.SubsidiaryTransactions
+		st      SubsidiaryTransactions
 		want    []byte
 		wantErr bool
 	}{
 		{
 			name: "empty",
-			st:   parcs.SubsidiaryTransactions{},
+			st:   SubsidiaryTransactions{},
 			want: []byte(`<?xml version="1.0" encoding="UTF-8"?>
 <PMISBatch>
 	<Header>
@@ -120,10 +118,10 @@ func Test_createXMLDocument(t *testing.T) {
 		},
 		{
 			name: "one",
-			st: parcs.SubsidiaryTransactions{
+			st: SubsidiaryTransactions{
 				Subsidiary:  "x",
 				TotalAmount: 1,
-				Transactions: []parcs.Transaction{{
+				Transactions: []Transaction{{
 					NetSuiteID:           "a",
 					CustomerExternalID:   "b",
 					Memo:                 "c",
@@ -163,7 +161,7 @@ func Test_createXMLDocument(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := parcs.CreateXMLDocument(tt.st)
+			got, err := createXMLDocument(tt.st)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -178,13 +176,13 @@ func Test_createXMLDocument(t *testing.T) {
 func Test_convertTransaction(t *testing.T) {
 	tests := []struct {
 		name        string
-		transaction parcs.Transaction
-		want        parcs.PMISTran
+		transaction Transaction
+		want        PMISTran
 	}{
 		{
 			name:        "CashSale",
 			transaction: cashSale,
-			want: parcs.PMISTran{
+			want: PMISTran{
 				TranType:             "GT",
 				RPP:                  "",
 				OPPTransactionAmount: 11.1,
@@ -200,7 +198,7 @@ func Test_convertTransaction(t *testing.T) {
 		{
 			name:        "CashRfnd",
 			transaction: cashRefund,
-			want: parcs.PMISTran{
+			want: PMISTran{
 				TranType:             "GT",
 				RPP:                  "",
 				OPPTransactionAmount: -99.9,
@@ -216,7 +214,7 @@ func Test_convertTransaction(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := parcs.ConvertTransaction(tt.transaction); !cmp.Equal(got, tt.want) {
+			if got := convertTransaction(tt.transaction); !cmp.Equal(got, tt.want) {
 				t.Errorf("diff: %v", cmp.Diff(got, tt.want))
 			}
 		})
@@ -224,14 +222,14 @@ func Test_convertTransaction(t *testing.T) {
 }
 
 func Test_writeXML(t *testing.T) {
-	st := parcs.SubsidiaryTransactions{
+	st := SubsidiaryTransactions{
 		Subsidiary:   "XYZ",
 		TotalAmount:  cashSale.Amount + cashRefund.Amount,
-		Transactions: []parcs.Transaction{cashSale, cashRefund},
+		Transactions: []Transaction{cashSale, cashRefund},
 	}
 
 	w := &bytes.Buffer{}
-	err := parcs.WriteXML(st, w)
+	err := writeXML(st, w)
 	if err != nil {
 		t.Errorf("WriteXML() error = %v", err)
 		return
