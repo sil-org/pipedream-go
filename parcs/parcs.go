@@ -350,7 +350,10 @@ func MarkTransactionsSent(ctx context.Context, transactions []Transaction, cfg C
 				errCh <- err
 			}
 
-			if err := setTransactionSentDate(cfg, url); err != nil {
+			requestBody := fmt.Sprintf(`{"custbody_sent_to_parcs":true,"custbody_date_sent_to_parcs":"%s"}`,
+				time.Now().UTC().Format(time.RFC3339))
+
+			if err := httpRequest(cfg.client, http.MethodPatch, url, requestBody); err != nil {
 				errCh <- fmt.Errorf("failed to update %v transaction %v: %w", t.TranType, t.NetSuiteID, err)
 			}
 		}(t)
@@ -388,18 +391,19 @@ func transactionURL(transactionID, transactionType, realm string) (string, error
 	return url, nil
 }
 
-func setTransactionSentDate(cfg Config, url string) error {
-	requestBody := fmt.Sprintf(`{"custbody_sent_to_parcs":true,"custbody_date_sent_to_parcs":"%s"}`,
-		time.Now().UTC().Format(time.RFC3339))
+func httpRequest(client *http.Client, method, url, body string) error {
+	if client == nil {
+		return errors.New("HTTP client has not been initialized")
+	}
 
-	req, err := http.NewRequest(http.MethodPatch, url, strings.NewReader(requestBody))
+	req, err := http.NewRequest(method, url, strings.NewReader(body))
 	if err != nil {
-		return fmt.Errorf("failed to create transaction update request: %w", err)
+		return fmt.Errorf("failed to create HTTP request: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := cfg.client.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to send transaction update: %w", err)
 	}
@@ -411,11 +415,11 @@ func setTransactionSentDate(cfg Config, url string) error {
 	}()
 
 	if resp.StatusCode >= 300 {
-		body, err := io.ReadAll(resp.Body)
+		b, err := io.ReadAll(resp.Body)
 		if err != nil {
 			return fmt.Errorf("body read failed: %w", err)
 		}
-		return fmt.Errorf("call failed with status code %d, body: %s", resp.StatusCode, body)
+		return fmt.Errorf("call failed with status code %d, body: %s", resp.StatusCode, b)
 	}
 
 	return nil

@@ -2,7 +2,9 @@ package parcs
 
 import (
 	"bytes"
+	"errors"
 	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"strings"
 	"testing"
@@ -630,4 +632,119 @@ func Test_transactionURL(t *testing.T) {
 			}
 		})
 	}
+}
+
+func Test_httpRequest(t *testing.T) {
+	tests := []struct {
+		name    string
+		client  *http.Client
+		method  string
+		body    string
+		url     string
+		handler http.HandlerFunc
+		wantErr string
+	}{
+		{
+			name:   "POST success (200)",
+			method: http.MethodPost,
+			body:   `{"name":"John"}`,
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodPost {
+					t.Fatalf("unexpected method: %s", r.Method)
+				}
+				if ct := r.Header.Get("Content-Type"); ct != "application/json" {
+					t.Fatalf("unexpected content-type: %s", ct)
+				}
+
+				w.WriteHeader(http.StatusOK)
+			},
+		},
+		{
+			name:   "PATCH success (200)",
+			method: http.MethodPatch,
+			body:   `{"name":"Jacob"}`,
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodPatch {
+					t.Fatalf("unexpected method: %s", r.Method)
+				}
+				if ct := r.Header.Get("Content-Type"); ct != "application/json" {
+					t.Fatalf("unexpected content-type: %s", ct)
+				}
+
+				w.WriteHeader(http.StatusOK)
+			},
+		},
+		{
+			name:   "error (400)",
+			method: http.MethodPatch,
+			body:   `{}`,
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte("bad request"))
+			},
+			wantErr: "status code 400",
+		},
+		{
+			name:   "client.Do error",
+			method: http.MethodPatch,
+			url:    "https://example.com",
+			body:   `{}`,
+			client: &http.Client{
+				Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+					return nil, errors.New("mock error")
+				}),
+			},
+			wantErr: "failed to send transaction update",
+		},
+		{
+			name:    "malformed url",
+			method:  http.MethodPatch,
+			url:     "https://[::1]:namedport", // invalid
+			body:    `{}`,
+			client:  http.DefaultClient,
+			wantErr: "failed to create HTTP request",
+		},
+		{
+			name:    "nil client",
+			method:  http.MethodPatch,
+			url:     "https://example.com",
+			body:    `{}`,
+			client:  nil,
+			wantErr: "HTTP client has not been initialized",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := tt.client
+			url := tt.url
+
+			if tt.handler != nil {
+				server := httptest.NewServer(tt.handler)
+				t.Cleanup(server.Close)
+
+				client = server.Client()
+				url = server.URL
+			}
+
+			err := httpRequest(client, tt.method, url, tt.body)
+
+			if tt.wantErr != "" && err == nil {
+				t.Fatalf("expected error, got nil")
+			}
+			if tt.wantErr == "" && err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if tt.wantErr != "" && err != nil &&
+				!strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("error %q does not contain %q", err.Error(), tt.wantErr)
+			}
+		})
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
+	return f(r)
 }
