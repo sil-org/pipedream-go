@@ -440,7 +440,7 @@ func SendToWorkday(cfg Config, data []ssh.Document) error {
 		}
 	}()
 
-	if err = ssh.WriteDocumentsToSFTP(sftpClient, data, cfg.SFTPDirectory); err != nil {
+	if err = ssh.UploadDocuments(sftpClient, data, cfg.SFTPDirectory); err != nil {
 		return fmt.Errorf("failed to write data: %w", err)
 	}
 

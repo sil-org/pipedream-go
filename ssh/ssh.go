@@ -51,9 +51,9 @@ func Connect(user, host, key string) (*ssh.Client, error) {
 	return client, nil
 }
 
-// WriteDocumentsToSFTP writes each document to remoteBaseDir/<name>.xml on the SFTP server.
+// UploadDocuments writes each document to remoteBaseDir/<name>.xml on the SFTP server.
 // It writes to a temp file first and then renames for atomicity.
-func WriteDocumentsToSFTP(sftpClient *sftp.Client, data []Document, remoteBaseDir string) error {
+func UploadDocuments(sftpClient *sftp.Client, data []Document, remoteBaseDir string) error {
 	err := sftpClient.MkdirAll(remoteBaseDir)
 	if err != nil {
 		return fmt.Errorf("mkdirall %s: %w", remoteBaseDir, err)
