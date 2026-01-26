@@ -208,13 +208,13 @@ func DoSavedSearch(ctx context.Context, cfg Config) (SearchResponse, error) {
 	if resp.StatusCode != 200 {
 		return SearchResponse{}, fmt.Errorf("call failed with status code %d, body: %s", resp.StatusCode, body)
 	}
-	return decodeResponse(bytes.NewReader(body))
+	return decodeResponse(body)
 }
 
 // decodeResponse performs the JSON decode for the NetSuite ParCS saved search.
-func decodeResponse(r io.Reader) (SearchResponse, error) {
+func decodeResponse(body []byte) (SearchResponse, error) {
 	var response SearchResponse
-	decoder := json.NewDecoder(r)
+	decoder := json.NewDecoder(bytes.NewReader(body))
 	err := decoder.Decode(&response)
 	if err != nil {
 		return SearchResponse{}, fmt.Errorf("NetSuite API body failed to unmarshal: %w", err)
