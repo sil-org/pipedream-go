@@ -60,34 +60,23 @@ type SearchResponse struct {
 type SearchRecord struct {
 	RecordType string `json:"recordType"`
 	ID         string `json:"id"` // not used
-	Values     struct {
-		InternalID                        []SelectValue `json:"internalid"`
-		Type                              []SelectValue `json:"type"`
-		SubsidiaryNoHierarchy             []SelectValue `json:"subsidiarynohierarchy"`
-		Subsidiary                        []SelectValue `json:"subsidiary"`
-		TransactionDate                   string        `json:"trandate"`
-		PostingPeriod                     []SelectValue `json:"postingperiod"`
-		TransactionNumber                 string        `json:"transactionnumber"`
-		TranID                            string        `json:"tranid"`
-		Entity                            []SelectValue `json:"entity"`
-		Memo                              string        `json:"memo"`
-		CustbodyForParcs                  bool          `json:"custbody_for_parcs"`
-		CustcolParcsTranTypeCode          []SelectValue `json:"custcol_parcs_tran_type_code"`
-		Custcol1                          string        `json:"custcol1"`
-		CustbodyParcsCodeBody             []any         `json:"custbody_parcs_code_body"`
-		CustbodyParcsRefBody              string        `json:"custbody_parcs_ref_body"`
-		ItemDisplayName                   string        `json:"item.displayname"`
-		TaxAmount                         string        `json:"taxamount"`
-		NetAmountNoTax                    string        `json:"netamountnotax"`
-		Amount                            string        `json:"amount"`
-		CreditAmount                      string        `json:"creditamount"`
-		DebitAmount                       string        `json:"debitamount"`
-		CustomerInternalID                []SelectValue `json:"customer.internalid"`
-		CustomerCustentitySILCustCategory []SelectValue `json:"customer.custentity_sil_cust_category"`
-		CustomerEntityID                  string        `json:"customer.entityid"`
-		CustomerExternalID                []SelectValue `json:"customer.externalid"`
-		SubsidiaryCustRecord155           string        `json:"subsidiary.custrecord155"`
-	} `json:"values"`
+	Values     Values `json:"values"`
+}
+
+type Values struct {
+	InternalID                        []SelectValue `json:"internalid"`
+	Type                              []SelectValue `json:"type"`
+	TransactionDate                   string        `json:"trandate"`
+	TranID                            string        `json:"tranid"`
+	Memo                              string        `json:"memo"`
+	CustcolParcsTranTypeCode          []SelectValue `json:"custcol_parcs_tran_type_code"`
+	CustbodyParcsRefBody              string        `json:"custbody_parcs_ref_body"`
+	TaxAmount                         string        `json:"taxamount"`
+	CreditAmount                      string        `json:"creditamount"`
+	DebitAmount                       string        `json:"debitamount"`
+	CustomerCustentitySILCustCategory []SelectValue `json:"customer.custentity_sil_cust_category"`
+	CustomerExternalID                []SelectValue `json:"customer.externalid"`
+	SubsidiaryCustRecord155           string        `json:"subsidiary.custrecord155"`
 }
 
 type SelectValue struct {
@@ -149,6 +138,9 @@ type XMLDocument struct {
 	Name    string `json:"filename"`
 	Content string `json:"content"`
 }
+
+// sshDial is a function variable to make it possible to unit test SSH code
+var sshDial = ssh.Dial
 
 // GetConfig reads from AWS Systems Manager Parameter Store and returns a Config structure for use by other functions
 // in this package.
@@ -219,13 +211,13 @@ func DoSavedSearch(ctx context.Context, cfg Config) (SearchResponse, error) {
 	if resp.StatusCode != 200 {
 		return SearchResponse{}, fmt.Errorf("call failed with status code %d, body: %s", resp.StatusCode, body)
 	}
-	return decodeResponse(bytes.NewReader(body))
+	return decodeResponse(body)
 }
 
 // decodeResponse performs the JSON decode for the NetSuite ParCS saved search.
-func decodeResponse(r io.Reader) (SearchResponse, error) {
+func decodeResponse(body []byte) (SearchResponse, error) {
 	var response SearchResponse
-	decoder := json.NewDecoder(r)
+	decoder := json.NewDecoder(bytes.NewReader(body))
 	err := decoder.Decode(&response)
 	if err != nil {
 		return SearchResponse{}, fmt.Errorf("NetSuite API body failed to unmarshal: %w", err)
@@ -355,7 +347,16 @@ func MarkTransactionsSent(ctx context.Context, transactions []Transaction, cfg C
 			defer func() { <-sem }()
 
 			log.Printf("updating NetSuite transaction %v", t.NetSuiteID)
-			if err := setTransactionSentDate(t, cfg); err != nil {
+
+			url, err := transactionURL(t.NetSuiteID, t.TranType, cfg.NetSuiteRealm)
+			if err != nil {
+				errCh <- err
+			}
+
+			requestBody := fmt.Sprintf(`{"custbody_sent_to_parcs":true,"custbody_date_sent_to_parcs":"%s"}`,
+				time.Now().UTC().Format(time.RFC3339))
+
+			if err := httpRequest(cfg.client, http.MethodPatch, url, requestBody); err != nil {
 				errCh <- fmt.Errorf("failed to update %v transaction %v: %w", t.TranType, t.NetSuiteID, err)
 			}
 		}(t)
@@ -375,32 +376,37 @@ func MarkTransactionsSent(ctx context.Context, transactions []Transaction, cfg C
 	return nil
 }
 
-func setTransactionSentDate(t *Transaction, cfg Config) error {
-	requestBody := fmt.Sprintf(`{"custbody_sent_to_parcs":true,"custbody_date_sent_to_parcs":"%s"}`,
-		time.Now().UTC().Format(time.RFC3339))
-
+func transactionURL(transactionID, transactionType, realm string) (string, error) {
 	transactionTypes := map[string]string{
 		CashRefund:      "cashRefund",
 		CashSale:        "cashSale",
 		CustomerDeposit: "customerDeposit",
 		CustomerRefund:  "customerRefund",
 	}
-	endpoint, ok := transactionTypes[t.TranType]
+	endpoint, ok := transactionTypes[transactionType]
 	if !ok {
-		return fmt.Errorf("invalid transaction type: %v", t.TranType)
+		return "", fmt.Errorf("invalid transaction type: %v", transactionType)
 	}
 
-	host := strings.Replace(cfg.NetSuiteRealm, "_", "-", 1)
+	host := strings.Replace(realm, "_", "-", 1)
 	url := fmt.Sprintf("https://%s.suitetalk.api.netsuite.com/services/rest/record/v1/%s/%s",
-		host, endpoint, t.NetSuiteID)
-	req, err := http.NewRequest(http.MethodPatch, url, strings.NewReader(requestBody))
+		host, endpoint, transactionID)
+	return url, nil
+}
+
+func httpRequest(client *http.Client, method, url, body string) error {
+	if client == nil {
+		return errors.New("HTTP client has not been initialized")
+	}
+
+	req, err := http.NewRequest(method, url, strings.NewReader(body))
 	if err != nil {
-		return fmt.Errorf("failed to create transaction update request: %w", err)
+		return fmt.Errorf("failed to create HTTP request: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := cfg.client.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to send transaction update: %w", err)
 	}
@@ -412,11 +418,11 @@ func setTransactionSentDate(t *Transaction, cfg Config) error {
 	}()
 
 	if resp.StatusCode >= 300 {
-		body, err := io.ReadAll(resp.Body)
+		b, err := io.ReadAll(resp.Body)
 		if err != nil {
 			return fmt.Errorf("body read failed: %w", err)
 		}
-		return fmt.Errorf("call failed with status code %d, body: %s", resp.StatusCode, body)
+		return fmt.Errorf("call failed with status code %d, body: %s", resp.StatusCode, b)
 	}
 
 	return nil
@@ -425,8 +431,6 @@ func setTransactionSentDate(t *Transaction, cfg Config) error {
 // connectSSH creates an ssh.Client connected to host:port using the provided username and privateKeyPath.
 func connectSSH(user, host, key string) (*ssh.Client, error) {
 	key = strings.ReplaceAll(key, `\n`, "\n")
-
-	log.Printf("... key starts with %q and ends with %q", key[0:min(48, len(key))], key[max(0, len(key)-48):])
 	signer, err := ssh.ParsePrivateKey([]byte(key))
 	if err != nil {
 		return nil, fmt.Errorf("parse private key: %w", err)
@@ -443,7 +447,7 @@ func connectSSH(user, host, key string) (*ssh.Client, error) {
 	}
 
 	addr := net.JoinHostPort(host, "22")
-	client, err := ssh.Dial("tcp", addr, sshConfig)
+	client, err := sshDial("tcp", addr, sshConfig)
 	if err != nil {
 		return nil, fmt.Errorf("ssh dial (addr: %s, user: %s): %w", addr, user, err)
 	}

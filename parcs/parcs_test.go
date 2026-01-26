@@ -2,12 +2,21 @@ package parcs
 
 import (
 	"bytes"
+	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/x509"
+	"encoding/pem"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	"golang.org/x/crypto/ssh"
 )
 
 const xmlSample = `<?xml version="1.0" encoding="UTF-8"?>
@@ -69,6 +78,181 @@ var cashRefund = Transaction{
 	CustomerCategory:     "10",
 	ParCSTranCode:        "MC",
 	TranType:             "CashRfnd",
+}
+
+const sampleSearchResponse = `{"results":[` + sampleCashRefundJSON + "," + sampleCashSaleJSON + `]}`
+
+const sampleCashRefundJSON = `{
+    "recordType" : "cashrefund",
+    "id" : "123456",
+    "values" : {
+      "internalid" : [ {
+        "value" : "123456",
+        "text" : "123456"
+      } ],
+      "type" : [ {
+        "value" : "CashRfnd",
+        "text" : "Cash Refund"
+      } ],
+      "subsidiarynohierarchy" : [ {
+        "value" : "7",
+        "text" : "Acme Corp"
+      } ],
+      "subsidiary" : [ {
+        "value" : "7",
+        "text" : "*Acme Corp : *Acme : Acme Corporation"
+      } ],
+      "trandate" : "08/01/2025",
+      "postingperiod" : [ {
+        "value" : "120",
+        "text" : "Aug 2025"
+      } ],
+      "transactionnumber" : "CASHRFND3096",
+      "tranid" : "RFND3096",
+      "entity" : [ {
+        "value" : "13406",
+        "text" : "ParCS (777777), Smith, John & Jane"
+      } ],
+      "memo" : "Reverse Smith FY 2025 August ParCS Payment (CS22222)",
+      "custbody_for_parcs" : true,
+      "custcol_parcs_tran_type_code" : [ {
+        "value" : "1",
+        "text" : "MC"
+      } ],
+      "custcol1" : "",
+      "custbody_parcs_code_body" : [ ],
+      "custbody_parcs_ref_body" : "",
+      "item.displayname" : "Facility Rental",
+      "taxamount" : "",
+      "netamountnotax" : "-730.00",
+      "amount" : "-730.00",
+      "creditamount" : "",
+      "debitamount" : "730.00",
+      "customer.internalid" : [ {
+        "value" : "33333",
+        "text" : "33333"
+      } ],
+      "customer.custentity_sil_cust_category" : [ {
+        "value" : "10",
+        "text" : "Acme Staff for ParCS"
+      } ],
+      "customer.entityid" : "ParCS (777777), Smith, John & Jane",
+      "customer.externalid" : [ {
+        "value" : "777777_C",
+        "text" : "777777_C"
+      } ],
+      "subsidiary.custrecord155" : "ACC"
+    }
+  }`
+
+const sampleCashSaleJSON = `{
+    "recordType" : "cashsale",
+    "id" : "987654",
+    "values" : {
+      "internalid" : [ {
+        "value" : "987654",
+        "text" : "987654"
+      } ],
+      "type" : [ {
+        "value" : "CashSale",
+        "text" : "Cash Sale/Donation"
+      } ],
+      "subsidiarynohierarchy" : [ {
+        "value" : "7",
+        "text" : "Acme Corporation"
+      } ],
+      "subsidiary" : [ {
+        "value" : "7",
+        "text" : "*Acme Corp : *Acme : Acme Corporation"
+      } ],
+      "trandate" : "08/13/2025",
+      "postingperiod" : [ {
+        "value" : "120",
+        "text" : "Aug 2025"
+      } ],
+      "transactionnumber" : "CASHSALE95107",
+      "tranid" : "CS95107",
+      "entity" : [ {
+        "value" : "6786",
+        "text" : "Johnson Manufacturing-ParCS"
+      } ],
+      "memo" : "Johnson Manufacturing: JMC 11010 WEVACF\nAIG Travel Assist Inv Jack Johnson ",
+      "custbody_for_parcs" : true,
+      "custcol_parcs_tran_type_code" : [ ],
+      "custcol1" : "",
+      "custbody_parcs_code_body" : [ ],
+      "custbody_parcs_ref_body" : "",
+      "item.displayname" : "",
+      "taxamount" : "",
+      "netamountnotax" : "-70125.00",
+      "amount" : "-70125.00",
+      "creditamount" : "70125.00",
+      "debitamount" : "",
+      "customer.internalid" : [ {
+        "value" : "6786",
+        "text" : "6786"
+      } ],
+      "customer.custentity_sil_cust_category" : [ {
+        "value" : "2",
+        "text" : "Alliance Organization (ParCS)"
+      } ],
+      "customer.entityid" : "Johnson Manufacturing-ParCS",
+      "customer.externalid" : [ {
+        "value" : "JMC",
+        "text" : "JMC"
+      } ],
+      "subsidiary.custrecord155" : "ACC"
+    }
+  }`
+
+func sampleResponse() SearchResponse {
+	return SearchResponse{
+		Results: []SearchRecord{sampleCashRefund(), sampleCashSale()},
+	}
+}
+
+func sampleCashRefund() SearchRecord {
+	return SearchRecord{
+		RecordType: "cashrefund",
+		ID:         "123456",
+		Values: Values{
+			InternalID:                        []SelectValue{{Value: "123456", Text: "123456"}},
+			Type:                              []SelectValue{{Value: "CashRfnd", Text: "Cash Refund"}},
+			TransactionDate:                   "08/01/2025",
+			TranID:                            "RFND3096",
+			Memo:                              "Reverse Smith FY 2025 August ParCS Payment (CS22222)",
+			CustcolParcsTranTypeCode:          []SelectValue{{Value: "1", Text: "MC"}},
+			CustbodyParcsRefBody:              "",
+			TaxAmount:                         "",
+			CreditAmount:                      "",
+			DebitAmount:                       "730.00",
+			CustomerCustentitySILCustCategory: []SelectValue{{Value: "10", Text: "Acme Staff for ParCS"}},
+			CustomerExternalID:                []SelectValue{{Value: "777777_C", Text: "777777_C"}},
+			SubsidiaryCustRecord155:           "ACC",
+		},
+	}
+}
+
+func sampleCashSale() SearchRecord {
+	return SearchRecord{
+		RecordType: "cashsale",
+		ID:         "987654",
+		Values: Values{
+			InternalID:                        []SelectValue{{Value: "987654", Text: "987654"}},
+			Type:                              []SelectValue{{Value: "CashSale", Text: "Cash Sale/Donation"}},
+			TransactionDate:                   "08/13/2025",
+			TranID:                            "CS95107",
+			Memo:                              "Johnson Manufacturing: JMC 11010 WEVACF\nAIG Travel Assist Inv Jack Johnson ",
+			CustcolParcsTranTypeCode:          []SelectValue{},
+			CustbodyParcsRefBody:              "",
+			TaxAmount:                         "",
+			CreditAmount:                      "70125.00",
+			DebitAmount:                       "",
+			CustomerCustentitySILCustCategory: []SelectValue{{Value: "2", Text: "Alliance Organization (ParCS)"}},
+			CustomerExternalID:                []SelectValue{{Value: "JMC", Text: "JMC"}},
+			SubsidiaryCustRecord155:           "ACC",
+		},
+	}
 }
 
 func Test_createXMLDocuments(t *testing.T) {
@@ -238,4 +422,384 @@ func Test_writeXML(t *testing.T) {
 	if !cmp.Equal(got, xmlSample) {
 		t.Errorf("diff: %v", cmp.Diff(got, xmlSample))
 	}
+}
+
+func Test_firstValue(t *testing.T) {
+	tests := []struct {
+		name string
+		v    []SelectValue
+		want string
+	}{
+		{name: "nil", v: nil, want: ""},
+		{name: "none", v: []SelectValue{}, want: ""},
+		{name: "one", v: []SelectValue{{Value: "v", Text: "t"}}, want: "v"},
+		{name: "two", v: []SelectValue{{Value: "v1", Text: "t1"}, {Value: "v2", Text: "t2"}}, want: "v1"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := firstValue(tt.v); got != tt.want {
+				t.Errorf("firstValue() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func Test_firstText(t *testing.T) {
+	tests := []struct {
+		name string
+		v    []SelectValue
+		want string
+	}{
+		{name: "nil", v: nil, want: ""},
+		{name: "none", v: []SelectValue{}, want: ""},
+		{name: "one", v: []SelectValue{{Value: "v", Text: "t"}}, want: "t"},
+		{name: "two", v: []SelectValue{{Value: "v1", Text: "t1"}, {Value: "v2", Text: "t2"}}, want: "t1"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := firstText(tt.v); got != tt.want {
+				t.Errorf("firstText() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func Test_parseAmount(t *testing.T) {
+	tests := []struct {
+		s    string
+		want int
+	}{
+		{s: "0", want: 0},
+		{s: "10", want: 1000},
+		{s: "-1", want: -100},
+		{s: "0.01", want: 1},
+		{s: "0.05", want: 5},
+		{s: "0.10", want: 10},
+		{s: "-0.01", want: -1},
+		{s: "-0.05", want: -5},
+		{s: "-0.10", want: -10},
+		{s: ".01", want: 1},
+		{s: "-.01", want: -1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.s, func(t *testing.T) {
+			if got := parseAmount(tt.s); got != tt.want {
+				t.Errorf("parseAmount() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func Test_validateConfig(t *testing.T) {
+	fullConfig := Config{
+		NetSuiteConsumerKey:    "x",
+		NetSuiteConsumerSecret: "x",
+		NetSuiteToken:          "x",
+		NetSuiteTokenSecret:    "x",
+		NetSuiteRealm:          "x",
+		NetSuiteSavedSearchURL: "x",
+		NetSuiteSearchID:       "x",
+		SFTPUsername:           "x",
+		SFTPHost:               "x",
+		SFTPPrivateKey:         "x",
+		SFTPDirectory:          "x",
+		client:                 &http.Client{},
+	}
+	tests := []struct {
+		name    string
+		cfg     Config
+		wantErr bool
+	}{
+		{name: "empty", cfg: Config{}, wantErr: true},
+		{name: "partial", cfg: Config{SFTPHost: "x"}, wantErr: true},
+		{name: "full", cfg: fullConfig, wantErr: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := validateConfig(tt.cfg); (err != nil) != tt.wantErr {
+				t.Errorf("validateConfig() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func Test_decodeResponse(t *testing.T) {
+	tests := []struct {
+		name    string
+		body    []byte
+		want    SearchResponse
+		wantErr string
+	}{
+		{
+			name:    "nil body",
+			body:    nil,
+			want:    SearchResponse{},
+			wantErr: "NetSuite API body failed to unmarshal: EOF",
+		},
+		{
+			name:    "empty body",
+			body:    []byte{},
+			want:    SearchResponse{},
+			wantErr: "NetSuite API body failed to unmarshal: EOF",
+		},
+		{
+			name: "empty JSON",
+			body: []byte("{}"),
+			want: SearchResponse{},
+		},
+		{
+			name: "sample",
+			body: []byte(sampleSearchResponse),
+			want: sampleResponse(),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := decodeResponse(tt.body)
+			if tt.wantErr != "" {
+				if err == nil {
+					t.Errorf("expected error: %v", tt.wantErr)
+				}
+				if tt.wantErr != err.Error() {
+					t.Errorf("incorrect error: %v, expected: %v", err, tt.wantErr)
+				}
+				return
+			}
+
+			if err != nil {
+				t.Errorf("unexpected error: %v", err)
+				return
+			}
+
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("decodeResponse() got = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func Test_transactionURL(t *testing.T) {
+	const transactionID = "101"
+	const realm = "1234567"
+
+	tests := []struct {
+		name            string
+		transactionType string
+		want            string
+		wantErr         string
+	}{
+		{
+			name:            "invalid type",
+			transactionType: "x",
+			wantErr:         "invalid transaction type: x",
+		},
+		{
+			name:            "cash refund",
+			transactionType: CashRefund,
+			want:            "https://1234567.suitetalk.api.netsuite.com/services/rest/record/v1/cashRefund/101",
+		},
+		{
+			name:            "cash sale",
+			transactionType: CashSale,
+			want:            "https://1234567.suitetalk.api.netsuite.com/services/rest/record/v1/cashSale/101",
+		},
+		{
+			name:            "customer deposit",
+			transactionType: CustomerDeposit,
+			want:            "https://1234567.suitetalk.api.netsuite.com/services/rest/record/v1/customerDeposit/101",
+		},
+		{
+			name:            "customer refund",
+			transactionType: CustomerRefund,
+			want:            "https://1234567.suitetalk.api.netsuite.com/services/rest/record/v1/customerRefund/101",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := transactionURL(transactionID, tt.transactionType, realm)
+			if tt.wantErr != "" {
+				if err == nil {
+					t.Errorf("expected error: %v", tt.wantErr)
+				}
+				if tt.wantErr != err.Error() {
+					t.Errorf("incorrect error: %v, expected: %v", err, tt.wantErr)
+				}
+				return
+			}
+
+			if err != nil {
+				t.Errorf("unexpected error: %v", err)
+				return
+			}
+
+			if got != tt.want {
+				t.Errorf("transactionURL() got = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func Test_httpRequest(t *testing.T) {
+	tests := []struct {
+		name    string
+		client  *http.Client
+		method  string
+		body    string
+		url     string
+		handler http.HandlerFunc
+		wantErr string
+	}{
+		{
+			name:   "POST success (200)",
+			method: http.MethodPost,
+			body:   `{"name":"John"}`,
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodPost {
+					t.Fatalf("unexpected method: %s", r.Method)
+				}
+				if ct := r.Header.Get("Content-Type"); ct != "application/json" {
+					t.Fatalf("unexpected content-type: %s", ct)
+				}
+
+				w.WriteHeader(http.StatusOK)
+			},
+		},
+		{
+			name:   "PATCH success (200)",
+			method: http.MethodPatch,
+			body:   `{"name":"Jacob"}`,
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodPatch {
+					t.Fatalf("unexpected method: %s", r.Method)
+				}
+				if ct := r.Header.Get("Content-Type"); ct != "application/json" {
+					t.Fatalf("unexpected content-type: %s", ct)
+				}
+
+				w.WriteHeader(http.StatusOK)
+			},
+		},
+		{
+			name:   "error (400)",
+			method: http.MethodPatch,
+			body:   `{}`,
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte("bad request"))
+			},
+			wantErr: "status code 400",
+		},
+		{
+			name:   "client.Do error",
+			method: http.MethodPatch,
+			url:    "https://example.com",
+			body:   `{}`,
+			client: &http.Client{
+				Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+					return nil, errors.New("mock error")
+				}),
+			},
+			wantErr: "failed to send transaction update",
+		},
+		{
+			name:    "malformed url",
+			method:  http.MethodPatch,
+			url:     "https://[::1]:namedport", // invalid
+			body:    `{}`,
+			client:  http.DefaultClient,
+			wantErr: "failed to create HTTP request",
+		},
+		{
+			name:    "nil client",
+			method:  http.MethodPatch,
+			url:     "https://example.com",
+			body:    `{}`,
+			client:  nil,
+			wantErr: "HTTP client has not been initialized",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := tt.client
+			url := tt.url
+
+			if tt.handler != nil {
+				server := httptest.NewServer(tt.handler)
+				t.Cleanup(server.Close)
+
+				client = server.Client()
+				url = server.URL
+			}
+
+			err := httpRequest(client, tt.method, url, tt.body)
+
+			if tt.wantErr != "" && err == nil {
+				t.Fatalf("expected error, got nil")
+			}
+			if tt.wantErr == "" && err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if tt.wantErr != "" && err != nil &&
+				!strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("error %q does not contain %q", err.Error(), tt.wantErr)
+			}
+		})
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
+	return f(r)
+}
+
+func Test_connectSSH(t *testing.T) {
+	orig := sshDial
+	defer func() { sshDial = orig }()
+
+	sshDial = func(network, addr string, cfg *ssh.ClientConfig) (*ssh.Client, error) {
+		if addr != "example.com:22" {
+			t.Fatalf("unexpected addr: %s", addr)
+		}
+		if cfg.User != "test_user" {
+			t.Fatalf("unexpected user: %s", cfg.User)
+		}
+		return &ssh.Client{}, nil
+	}
+
+	_, err := connectSSH("test_user", "example.com", generateTestEd25519Key(t, "PRIVATE KEY"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	_, err = connectSSH("test_user", "example.com", generateTestEd25519Key(t, "RSA PRIVATE KEY"))
+	if err == nil {
+		t.Fatalf("expected an error parsing the key")
+	}
+}
+
+func generateTestEd25519Key(t testing.TB, pemType string) string {
+	t.Helper()
+
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate ed25519 key: %v", err)
+	}
+
+	privDER, err := x509.MarshalPKCS8PrivateKey(priv)
+	if err != nil {
+		t.Fatalf("marshal pkcs8: %v", err)
+	}
+
+	var buf bytes.Buffer
+	err = pem.Encode(&buf, &pem.Block{
+		Type:  pemType,
+		Bytes: privDER,
+	})
+	if err != nil {
+		t.Fatalf("pem encode: %v", err)
+	}
+
+	return buf.String()
 }
