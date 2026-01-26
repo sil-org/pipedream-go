@@ -2,6 +2,7 @@ package parcs
 
 import (
 	"bytes"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -301,6 +302,39 @@ func Test_parseAmount(t *testing.T) {
 		t.Run(tt.s, func(t *testing.T) {
 			if got := parseAmount(tt.s); got != tt.want {
 				t.Errorf("parseAmount() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func Test_validateConfig(t *testing.T) {
+	fullConfig := Config{
+		NetSuiteConsumerKey:    "x",
+		NetSuiteConsumerSecret: "x",
+		NetSuiteToken:          "x",
+		NetSuiteTokenSecret:    "x",
+		NetSuiteRealm:          "x",
+		NetSuiteSavedSearchURL: "x",
+		NetSuiteSearchID:       "x",
+		SFTPUsername:           "x",
+		SFTPHost:               "x",
+		SFTPPrivateKey:         "x",
+		SFTPDirectory:          "x",
+		client:                 &http.Client{},
+	}
+	tests := []struct {
+		name    string
+		cfg     Config
+		wantErr bool
+	}{
+		{name: "empty", cfg: Config{}, wantErr: true},
+		{name: "partial", cfg: Config{SFTPHost: "x"}, wantErr: true},
+		{name: "full", cfg: fullConfig, wantErr: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := validateConfig(tt.cfg); (err != nil) != tt.wantErr {
+				t.Errorf("validateConfig() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}
