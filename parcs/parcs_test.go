@@ -2,10 +2,6 @@ package parcs
 
 import (
 	"bytes"
-	"crypto/ed25519"
-	"crypto/rand"
-	"crypto/x509"
-	"encoding/pem"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -16,7 +12,8 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	"golang.org/x/crypto/ssh"
+
+	"github.com/sil-org/pipedream-go/ssh"
 )
 
 const xmlSample = `<?xml version="1.0" encoding="UTF-8"?>
@@ -262,7 +259,7 @@ func Test_createXMLDocuments(t *testing.T) {
 		Transactions: []Transaction{cashSale, cashRefund},
 	}}
 
-	want := []XMLDocument{{
+	want := []ssh.Document{{
 		Name:    "XYZ",
 		Content: xmlSample,
 	}}
@@ -275,7 +272,7 @@ func Test_createXMLDocuments(t *testing.T) {
 	if !strings.HasPrefix(got[0].Name, st[0].Subsidiary) {
 		t.Error("XML document does not have the expected name, should start with the subsidiary code")
 	}
-	if !cmp.Equal(got[0], want[0], cmpopts.IgnoreFields(XMLDocument{}, "Name")) {
+	if !cmp.Equal(got[0], want[0], cmpopts.IgnoreFields(ssh.Document{}, "Name")) {
 		t.Error("diff:", cmp.Diff(got[0], want[0]))
 	}
 }
@@ -752,54 +749,4 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
 	return f(r)
-}
-
-func Test_connectSSH(t *testing.T) {
-	orig := sshDial
-	defer func() { sshDial = orig }()
-
-	sshDial = func(network, addr string, cfg *ssh.ClientConfig) (*ssh.Client, error) {
-		if addr != "example.com:22" {
-			t.Fatalf("unexpected addr: %s", addr)
-		}
-		if cfg.User != "test_user" {
-			t.Fatalf("unexpected user: %s", cfg.User)
-		}
-		return &ssh.Client{}, nil
-	}
-
-	_, err := connectSSH("test_user", "example.com", generateTestEd25519Key(t, "PRIVATE KEY"))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	_, err = connectSSH("test_user", "example.com", generateTestEd25519Key(t, "RSA PRIVATE KEY"))
-	if err == nil {
-		t.Fatalf("expected an error parsing the key")
-	}
-}
-
-func generateTestEd25519Key(t testing.TB, pemType string) string {
-	t.Helper()
-
-	_, priv, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatalf("generate ed25519 key: %v", err)
-	}
-
-	privDER, err := x509.MarshalPKCS8PrivateKey(priv)
-	if err != nil {
-		t.Fatalf("marshal pkcs8: %v", err)
-	}
-
-	var buf bytes.Buffer
-	err = pem.Encode(&buf, &pem.Block{
-		Type:  pemType,
-		Bytes: privDER,
-	})
-	if err != nil {
-		t.Fatalf("pem encode: %v", err)
-	}
-
-	return buf.String()
 }
