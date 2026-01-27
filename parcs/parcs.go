@@ -447,8 +447,8 @@ func SendToWorkday(cfg Config, data []ssh.Document) error {
 	return nil
 }
 
-// createXMLDocuments converts a list of SubsidiaryTransactions to a list of XMLDocument
-func createXMLDocuments(st []SubsidiaryTransactions) ([]ssh.Document, error) {
+// CreateXMLDocuments converts a list of SubsidiaryTransactions to a list of XMLDocument
+func CreateXMLDocuments(st []SubsidiaryTransactions) ([]ssh.Document, error) {
 	today := time.Now().Format(time.RFC3339)
 
 	docs := make([]ssh.Document, len(st))

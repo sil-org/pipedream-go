@@ -264,9 +264,9 @@ func Test_createXMLDocuments(t *testing.T) {
 		Content: xmlSample,
 	}}
 
-	got, err := createXMLDocuments(st)
+	got, err := CreateXMLDocuments(st)
 	if err != nil {
-		t.Errorf("createXMLDocuments() error = %v", err)
+		t.Errorf("CreateXMLDocuments() error = %v", err)
 		return
 	}
 	if !strings.HasPrefix(got[0].Name, st[0].Subsidiary) {
