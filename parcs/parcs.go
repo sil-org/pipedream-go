@@ -451,21 +451,22 @@ func SendToWorkday(cfg Config, data []ssh.Document) error {
 	return nil
 }
 
-// CreateXMLDocuments converts a list of SubsidiaryTransactions to a list of XMLDocument
-func CreateXMLDocuments(st []SubsidiaryTransactions) ([]ssh.Document, error) {
+// CreateXMLDocuments converts a list of SubsidiaryTransactions to map of Documents keyed by subsidiary
+func CreateXMLDocuments(st []SubsidiaryTransactions) (map[string]ssh.Document, error) {
 	today := time.Now().Format(time.RFC3339)
 
-	docs := make([]ssh.Document, len(st))
-	for i, t := range st {
+	docs := make(map[string]ssh.Document)
+	for _, t := range st {
 		b, err := createXMLDocument(t)
 		if err != nil {
 			return nil, fmt.Errorf("XML error on %s: %w", t.Subsidiary, err)
 		}
 
-		docs[i] = ssh.Document{
+		doc := ssh.Document{
 			Name:    fmt.Sprintf("%s_%s.xml", t.Subsidiary, today),
 			Content: string(b),
 		}
+		docs[t.Subsidiary] = doc
 	}
 	return docs, nil
 }
