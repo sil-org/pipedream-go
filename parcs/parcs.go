@@ -274,6 +274,10 @@ func firstText(v []SelectValue) string {
 }
 
 func parseAmount(s string) int {
+	if s == "" {
+		return 0
+	}
+
 	f, err := strconv.ParseFloat(s, 32)
 	if err != nil {
 		log.Printf("failed to parse float from string: %s", s)
