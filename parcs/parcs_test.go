@@ -22,7 +22,8 @@ const xmlDoc1 = `<?xml version="1.0" encoding="UTF-8"?>
 		<BatchCount>1</BatchCount>
 		<BatchTotal>11.1</BatchTotal>
 		<Originating_PP>ABC</Originating_PP>
-	</Header>` + xmlCashSale + `
+	</Header>` +
+	xmlCashSale + `
 </PMISBatch>`
 
 const xmlDoc2 = `<?xml version="1.0" encoding="UTF-8"?>
@@ -31,7 +32,9 @@ const xmlDoc2 = `<?xml version="1.0" encoding="UTF-8"?>
 		<BatchCount>2</BatchCount>
 		<BatchTotal>-88.8</BatchTotal>
 		<Originating_PP>XYZ</Originating_PP>
-	</Header>` + xmlCashSale + xmlCashRefund + `
+	</Header>` +
+	xmlCashSale +
+	xmlCashRefund + `
 </PMISBatch>`
 
 const xmlCashSale = `
@@ -294,6 +297,9 @@ func Test_createXMLDocuments(t *testing.T) {
 	if err != nil {
 		t.Errorf("CreateXMLDocuments() error = %v", err)
 		return
+	}
+	if len(got) != 2 {
+		t.Errorf("expected 2 documents, got %d", len(got))
 	}
 	if !strings.HasPrefix(got["ABC"].Name, "ABC") {
 		t.Errorf("incorrect XML document name, expected the subsidiary code ABC, got: %s", got["ABC"].Name)

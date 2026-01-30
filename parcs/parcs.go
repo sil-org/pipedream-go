@@ -451,7 +451,7 @@ func SendToWorkday(cfg Config, data []ssh.Document) error {
 	return nil
 }
 
-// CreateXMLDocuments converts a list of SubsidiaryTransactions to map of Documents keyed by subsidiary
+// CreateXMLDocuments converts a list of SubsidiaryTransactions to a map of Documents keyed by subsidiary
 func CreateXMLDocuments(st []SubsidiaryTransactions) (map[string]ssh.Document, error) {
 	today := time.Now().Format(time.RFC3339)
 
@@ -466,6 +466,11 @@ func CreateXMLDocuments(st []SubsidiaryTransactions) (map[string]ssh.Document, e
 			Name:    fmt.Sprintf("%s_%s.xml", t.Subsidiary, today),
 			Content: string(b),
 		}
+
+		if _, ok := docs[t.Subsidiary]; ok {
+			return nil, fmt.Errorf("duplicate XML document: %s", t.Subsidiary)
+		}
+
 		docs[t.Subsidiary] = doc
 	}
 	return docs, nil
