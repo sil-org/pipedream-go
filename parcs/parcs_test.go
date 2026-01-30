@@ -16,13 +16,28 @@ import (
 	"github.com/sil-org/pipedream-go/ssh"
 )
 
-const xmlSample = `<?xml version="1.0" encoding="UTF-8"?>
+const xmlDoc1 = `<?xml version="1.0" encoding="UTF-8"?>
+<PMISBatch>
+	<Header>
+		<BatchCount>1</BatchCount>
+		<BatchTotal>11.1</BatchTotal>
+		<Originating_PP>ABC</Originating_PP>
+	</Header>` +
+	xmlCashSale + `
+</PMISBatch>`
+
+const xmlDoc2 = `<?xml version="1.0" encoding="UTF-8"?>
 <PMISBatch>
 	<Header>
 		<BatchCount>2</BatchCount>
 		<BatchTotal>-88.8</BatchTotal>
 		<Originating_PP>XYZ</Originating_PP>
-	</Header>
+	</Header>` +
+	xmlCashSale +
+	xmlCashRefund + `
+</PMISBatch>`
+
+const xmlCashSale = `
 	<PMISTran>
 		<TranType>GT</TranType>
 		<RPP></RPP>
@@ -34,7 +49,9 @@ const xmlSample = `<?xml version="1.0" encoding="UTF-8"?>
 		<OPP_Transaction_Ref>Netsuite: CashSale_CS90384</OPP_Transaction_Ref>
 		<Originating_Person>OppExport_Workday</Originating_Person>
 		<OPP_Transaction_Date>2025-07-31</OPP_Transaction_Date>
-	</PMISTran>
+	</PMISTran>`
+
+const xmlCashRefund = `
 	<PMISTran>
 		<TranType>GT</TranType>
 		<RPP></RPP>
@@ -46,8 +63,7 @@ const xmlSample = `<?xml version="1.0" encoding="UTF-8"?>
 		<OPP_Transaction_Ref>Netsuite: CashRfnd_CS90384</OPP_Transaction_Ref>
 		<Originating_Person>OppExport_Workday</Originating_Person>
 		<OPP_Transaction_Date>2025-07-31</OPP_Transaction_Date>
-	</PMISTran>
-</PMISBatch>`
+	</PMISTran>`
 
 var cashSale = Transaction{
 	NetSuiteID:           "111111",
@@ -253,27 +269,49 @@ func sampleCashSale() SearchRecord {
 }
 
 func Test_createXMLDocuments(t *testing.T) {
-	st := []SubsidiaryTransactions{{
-		Subsidiary:   "XYZ",
-		TotalAmount:  cashSale.Amount + cashRefund.Amount,
-		Transactions: []Transaction{cashSale, cashRefund},
-	}}
+	st := []SubsidiaryTransactions{
+		{
+			Subsidiary:   "ABC",
+			TotalAmount:  cashSale.Amount,
+			Transactions: []Transaction{cashSale},
+		},
+		{
+			Subsidiary:   "XYZ",
+			TotalAmount:  cashSale.Amount + cashRefund.Amount,
+			Transactions: []Transaction{cashSale, cashRefund},
+		},
+	}
 
-	want := []ssh.Document{{
-		Name:    "XYZ",
-		Content: xmlSample,
-	}}
+	want := map[string]ssh.Document{
+		"ABC": {
+			Name:    "ABC",
+			Content: xmlDoc1,
+		},
+		"XYZ": {
+			Name:    "XYZ",
+			Content: xmlDoc2,
+		},
+	}
 
 	got, err := CreateXMLDocuments(st)
 	if err != nil {
 		t.Errorf("CreateXMLDocuments() error = %v", err)
 		return
 	}
-	if !strings.HasPrefix(got[0].Name, st[0].Subsidiary) {
-		t.Error("XML document does not have the expected name, should start with the subsidiary code")
+	if len(got) != 2 {
+		t.Errorf("expected 2 documents, got %d", len(got))
 	}
-	if !cmp.Equal(got[0], want[0], cmpopts.IgnoreFields(ssh.Document{}, "Name")) {
-		t.Error("diff:", cmp.Diff(got[0], want[0]))
+	if !strings.HasPrefix(got["ABC"].Name, "ABC") {
+		t.Errorf("incorrect XML document name, expected the subsidiary code ABC, got: %s", got["ABC"].Name)
+	}
+	if !strings.HasPrefix(got["XYZ"].Name, "XYZ") {
+		t.Errorf("incorrect XML document name, expected the subsidiary code XYZ, got: %s", got["XYZ"].Name)
+	}
+	if !cmp.Equal(got["ABC"], want["ABC"], cmpopts.IgnoreFields(ssh.Document{}, "Name")) {
+		t.Error("diff:", cmp.Diff(got["ABC"], want["ABC"]))
+	}
+	if !cmp.Equal(got["XYZ"], want["XYZ"], cmpopts.IgnoreFields(ssh.Document{}, "Name")) {
+		t.Error("diff:", cmp.Diff(got["XYZ"], want["XYZ"]))
 	}
 }
 
@@ -416,8 +454,8 @@ func Test_writeXML(t *testing.T) {
 		return
 	}
 	got := w.String()
-	if !cmp.Equal(got, xmlSample) {
-		t.Errorf("diff: %v", cmp.Diff(got, xmlSample))
+	if !cmp.Equal(got, xmlDoc2) {
+		t.Errorf("diff: %v", cmp.Diff(got, xmlDoc2))
 	}
 }
 
