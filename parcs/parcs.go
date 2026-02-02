@@ -289,29 +289,35 @@ func parseAmount(s string) int {
 	return int(math.Round(f * 100))
 }
 
-func GroupTransactions(transactions []Transaction) ([]SubsidiaryTransactions, error) {
-	groupedTransactions := map[string][]Transaction{}
-	totals := map[string]int{}
+// GroupTransactions segments the transaction list into blocks by subsidiary. No more than maxSize transactions will
+// be included in a single block.
+func GroupTransactions(transactions []Transaction, maxSize int) ([]SubsidiaryTransactions, error) {
+	// grouped is the finished list
+	grouped := make([]SubsidiaryTransactions, 0)
+
+	// subsidiaryLists are slice indexes of the current list for each subsidiary
+	subsidiaryLists := make(map[string]int)
+
 	for _, t := range transactions {
-		totals[t.SubsidiaryExternalID] = totals[t.SubsidiaryExternalID] + t.Amount
-		groupedTransactions[t.SubsidiaryExternalID] = append(groupedTransactions[t.SubsidiaryExternalID], t)
+		// if there's a list for this transaction's subsidiary, and it's still short enough, add to it
+		if idx, ok := subsidiaryLists[t.SubsidiaryExternalID]; ok {
+			if len(grouped[idx].Transactions) < maxSize {
+				grouped[idx].Transactions = append(grouped[idx].Transactions, t)
+				grouped[idx].TotalAmount += t.Amount
+				continue
+			}
+		}
+
+		// otherwise, make a new list and store its index in subsidiaryLists
+		grouped = append(grouped, SubsidiaryTransactions{
+			Subsidiary:   t.SubsidiaryExternalID,
+			TotalAmount:  t.Amount,
+			Transactions: []Transaction{t},
+		})
+		subsidiaryLists[t.SubsidiaryExternalID] = len(grouped) - 1
 	}
 
-	totalTransactions := 0
-	t := make([]SubsidiaryTransactions, 0, len(groupedTransactions))
-	for subsidiary := range groupedTransactions {
-		t = append(t, SubsidiaryTransactions{
-			Subsidiary:   subsidiary,
-			TotalAmount:  totals[subsidiary],
-			Transactions: groupedTransactions[subsidiary],
-		})
-		totalTransactions += len(groupedTransactions[subsidiary])
-	}
-	if len(transactions) != totalTransactions {
-		return nil, fmt.Errorf("total number of transactions in groups is not correct, expected %d, got %d",
-			len(transactions), totalTransactions)
-	}
-	return t, nil
+	return grouped, nil
 }
 
 func MarkTransactionsSent(ctx context.Context, transactions []Transaction, cfg Config) error {

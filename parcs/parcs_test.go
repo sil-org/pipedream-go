@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -787,4 +788,45 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
 	return f(r)
+}
+
+func Test_GroupTransactions(t *testing.T) {
+	var transactions []Transaction
+	for i := 0; i < 5; i++ {
+		testTransaction := cashSale
+		testTransaction.TranID = strconv.Itoa(i)
+
+		// make two different subsidiary IDs: TS1 and TS2
+		testTransaction.SubsidiaryExternalID = "TS" + strconv.Itoa(i%2+1)
+
+		transactions = append(transactions, testTransaction)
+	}
+
+	// TS1 should be broken into two transaction groups, TS2 should be in one group
+	expected := []SubsidiaryTransactions{
+		{
+			Subsidiary:   "TS1",
+			TotalAmount:  2220,
+			Transactions: []Transaction{transactions[0], transactions[2]},
+		},
+		{
+			Subsidiary:   "TS2",
+			TotalAmount:  2220,
+			Transactions: []Transaction{transactions[1], transactions[3]},
+		},
+		{
+			Subsidiary:   "TS1",
+			TotalAmount:  1110,
+			Transactions: []Transaction{transactions[4]},
+		},
+	}
+
+	got, err := GroupTransactions(transactions, 2)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !reflect.DeepEqual(expected, got) {
+		t.Fatalf("expected: %v, got: %v", expected, got)
+	}
 }
