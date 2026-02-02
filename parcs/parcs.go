@@ -104,6 +104,7 @@ type SubsidiaryTransactions struct {
 	Subsidiary   string
 	TotalAmount  int
 	Transactions []Transaction
+	Document     ssh.Document
 }
 
 // PMISBatch is the definition of the top-level object in the XML file output.
@@ -470,29 +471,22 @@ func SendToWorkday(cfg Config, data []ssh.Document) error {
 	return nil
 }
 
-// CreateXMLDocuments converts a list of SubsidiaryTransactions to a map of Documents keyed by subsidiary
-func CreateXMLDocuments(st []SubsidiaryTransactions) (map[string]ssh.Document, error) {
+// CreateXMLDocuments creates an XML Document for each block of transactions in a list of SubsidiaryTransactions.
+func CreateXMLDocuments(st []SubsidiaryTransactions) error {
 	today := time.Now().Format(time.RFC3339)
 
-	docs := make(map[string]ssh.Document)
-	for _, t := range st {
+	for i, t := range st {
 		b, err := createXMLDocument(t)
 		if err != nil {
-			return nil, fmt.Errorf("XML error on %s: %w", t.Subsidiary, err)
+			return fmt.Errorf("XML error on %s: %w", t.Subsidiary, err)
 		}
 
-		doc := ssh.Document{
+		st[i].Document = ssh.Document{
 			Name:    fmt.Sprintf("%s_%s.xml", t.Subsidiary, today),
 			Content: string(b),
 		}
-
-		if _, ok := docs[t.Subsidiary]; ok {
-			return nil, fmt.Errorf("duplicate XML document: %s", t.Subsidiary)
-		}
-
-		docs[t.Subsidiary] = doc
 	}
-	return docs, nil
+	return nil
 }
 
 // createXMLDocument converts a SubsidiaryTransactions to an XMLDocument
