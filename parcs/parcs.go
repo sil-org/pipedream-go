@@ -26,7 +26,10 @@ import (
 	"github.com/sil-org/pipedream-go/ssh"
 )
 
-const MaxConcurrent = 5 // change this to adjust concurrency
+// MaxConcurrent sets the number of concurrent transaction updates. Setting higher than 5 may cause a concurrency
+// limit error: "Concurrent request limit exceeded. Request blocked. Verify your concurrency limits at Setup >
+// Integration > Integration Management > Integration Governance."
+const MaxConcurrent = 5
 
 const (
 	CashRefund      = "CashRfnd"
@@ -339,8 +342,6 @@ func MarkTransactionsSent(ctx context.Context, transactions []Transaction, cfg C
 			defer wg.Done()
 			defer func() { <-sem }()
 
-			log.Printf("updating NetSuite transaction %v", t.NetSuiteID)
-
 			url, err := transactionURL(t.NetSuiteID, t.TranType, cfg.NetSuiteRealm)
 			if err != nil {
 				errCh <- err
@@ -351,7 +352,10 @@ func MarkTransactionsSent(ctx context.Context, transactions []Transaction, cfg C
 
 			if err := httpRequest(cfg.client, http.MethodPatch, url, requestBody); err != nil {
 				errCh <- fmt.Errorf("failed to update %v transaction %v: %w", t.TranType, t.NetSuiteID, err)
+				return
 			}
+
+			log.Printf("updated NetSuite transaction %v", t.NetSuiteID)
 		}(t)
 	}
 
