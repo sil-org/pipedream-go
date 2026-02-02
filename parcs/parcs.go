@@ -342,16 +342,8 @@ func MarkTransactionsSent(ctx context.Context, transactions []Transaction, cfg C
 			defer wg.Done()
 			defer func() { <-sem }()
 
-			url, err := transactionURL(t.NetSuiteID, t.TranType, cfg.NetSuiteRealm)
-			if err != nil {
+			if err := MarkTransactionSent(t, cfg); err != nil {
 				errCh <- err
-			}
-
-			requestBody := fmt.Sprintf(`{"custbody_sent_to_parcs":true,"custbody_date_sent_to_parcs":"%s"}`,
-				time.Now().UTC().Format(time.RFC3339))
-
-			if err := httpRequest(cfg.client, http.MethodPatch, url, requestBody); err != nil {
-				errCh <- fmt.Errorf("failed to update %v transaction %v: %w", t.TranType, t.NetSuiteID, err)
 				return
 			}
 
@@ -370,6 +362,23 @@ func MarkTransactionsSent(ctx context.Context, transactions []Transaction, cfg C
 		return errors.Join(errs...)
 	}
 
+	return nil
+}
+
+func MarkTransactionSent(t *Transaction, cfg Config) error {
+	url, err := transactionURL(t.NetSuiteID, t.TranType, cfg.NetSuiteRealm)
+	if err != nil {
+		return err
+	}
+
+	requestBody := fmt.Sprintf(`{"custbody_sent_to_parcs":true,"custbody_date_sent_to_parcs":"%s"}`,
+		time.Now().UTC().Format(time.RFC3339))
+
+	if err := httpRequest(cfg.client, http.MethodPatch, url, requestBody); err != nil {
+		return fmt.Errorf("failed to update %v transaction %v: %w", t.TranType, t.NetSuiteID, err)
+	}
+
+	log.Printf("updated NetSuite transaction %v", t.NetSuiteID)
 	return nil
 }
 
