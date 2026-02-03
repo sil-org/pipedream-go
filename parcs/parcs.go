@@ -473,8 +473,6 @@ func SendToWorkday(cfg Config, data []ssh.Document) error {
 
 // CreateXMLDocuments creates an XML Document for each block of transactions in a list of SubsidiaryTransactions.
 func CreateXMLDocuments(st []SubsidiaryTransactions) error {
-	today := time.Now().Format(time.RFC3339)
-
 	for i, t := range st {
 		b, err := createXMLDocument(t)
 		if err != nil {
@@ -482,7 +480,7 @@ func CreateXMLDocuments(st []SubsidiaryTransactions) error {
 		}
 
 		st[i].Document = ssh.Document{
-			Name:    fmt.Sprintf("%s_%s.xml", t.Subsidiary, today),
+			Name:    fmt.Sprintf("%s_%s.xml", t.Subsidiary, time.Now().Format(time.RFC3339Nano)),
 			Content: string(b),
 		}
 	}
