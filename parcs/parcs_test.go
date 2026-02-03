@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -280,38 +281,35 @@ func Test_createXMLDocuments(t *testing.T) {
 			TotalAmount:  cashSale.Amount + cashRefund.Amount,
 			Transactions: []Transaction{cashSale, cashRefund},
 		},
-	}
-
-	want := map[string]ssh.Document{
-		"ABC": {
-			Name:    "ABC",
-			Content: xmlDoc1,
-		},
-		"XYZ": {
-			Name:    "XYZ",
-			Content: xmlDoc2,
+		{
+			// one more transaction for XYZ
+			Subsidiary:   "XYZ",
+			TotalAmount:  cashSale.Amount,
+			Transactions: []Transaction{cashSale},
 		},
 	}
 
-	got, err := CreateXMLDocuments(st)
+	err := CreateXMLDocuments(st)
 	if err != nil {
 		t.Errorf("CreateXMLDocuments() error = %v", err)
 		return
 	}
-	if len(got) != 2 {
-		t.Errorf("expected 2 documents, got %d", len(got))
+	if len(st) != 3 {
+		t.Errorf("expected 3 documents, st %d", len(st))
 	}
-	if !strings.HasPrefix(got["ABC"].Name, "ABC") {
-		t.Errorf("incorrect XML document name, expected the subsidiary code ABC, got: %s", got["ABC"].Name)
+
+	if !strings.HasPrefix(st[0].Document.Name, "ABC") {
+		t.Errorf("incorrect XML document name, expected the subsidiary code ABC, got: %s", st[0].Document.Name)
 	}
-	if !strings.HasPrefix(got["XYZ"].Name, "XYZ") {
-		t.Errorf("incorrect XML document name, expected the subsidiary code XYZ, got: %s", got["XYZ"].Name)
+	if !strings.HasPrefix(st[1].Document.Name, "XYZ") {
+		t.Errorf("incorrect XML document name, expected the subsidiary code XYZ, got: %s", st[1].Document.Name)
 	}
-	if !cmp.Equal(got["ABC"], want["ABC"], cmpopts.IgnoreFields(ssh.Document{}, "Name")) {
-		t.Error("diff:", cmp.Diff(got["ABC"], want["ABC"]))
+
+	if !cmp.Equal(st[0].Document.Content, xmlDoc1, cmpopts.IgnoreFields(ssh.Document{}, "Name")) {
+		t.Error("diff:", cmp.Diff(st[0].Document.Content, xmlDoc1))
 	}
-	if !cmp.Equal(got["XYZ"], want["XYZ"], cmpopts.IgnoreFields(ssh.Document{}, "Name")) {
-		t.Error("diff:", cmp.Diff(got["XYZ"], want["XYZ"]))
+	if !cmp.Equal(st[1].Document.Content, xmlDoc2, cmpopts.IgnoreFields(ssh.Document{}, "Name")) {
+		t.Error("diff:", cmp.Diff(st[1].Document.Content, xmlDoc2))
 	}
 }
 
@@ -787,4 +785,45 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
 	return f(r)
+}
+
+func Test_GroupTransactions(t *testing.T) {
+	var transactions []Transaction
+	for i := 0; i < 5; i++ {
+		testTransaction := cashSale
+		testTransaction.TranID = strconv.Itoa(i)
+
+		// make two different subsidiary IDs: TS1 and TS2
+		testTransaction.SubsidiaryExternalID = "TS" + strconv.Itoa(i%2+1)
+
+		transactions = append(transactions, testTransaction)
+	}
+
+	// TS1 should be broken into two transaction groups, TS2 should be in one group
+	expected := []SubsidiaryTransactions{
+		{
+			Subsidiary:   "TS1",
+			TotalAmount:  2220,
+			Transactions: []Transaction{transactions[0], transactions[2]},
+		},
+		{
+			Subsidiary:   "TS2",
+			TotalAmount:  2220,
+			Transactions: []Transaction{transactions[1], transactions[3]},
+		},
+		{
+			Subsidiary:   "TS1",
+			TotalAmount:  1110,
+			Transactions: []Transaction{transactions[4]},
+		},
+	}
+
+	got, err := GroupTransactions(transactions, 2)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !reflect.DeepEqual(expected, got) {
+		t.Fatalf("expected: %v, got: %v", expected, got)
+	}
 }

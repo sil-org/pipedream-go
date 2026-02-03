@@ -104,6 +104,7 @@ type SubsidiaryTransactions struct {
 	Subsidiary   string
 	TotalAmount  int
 	Transactions []Transaction
+	Document     ssh.Document
 }
 
 // PMISBatch is the definition of the top-level object in the XML file output.
@@ -289,29 +290,35 @@ func parseAmount(s string) int {
 	return int(math.Round(f * 100))
 }
 
-func GroupTransactions(transactions []Transaction) ([]SubsidiaryTransactions, error) {
-	groupedTransactions := map[string][]Transaction{}
-	totals := map[string]int{}
+// GroupTransactions segments the transaction list into blocks by subsidiary. No more than maxSize transactions will
+// be included in a single block.
+func GroupTransactions(transactions []Transaction, maxSize int) ([]SubsidiaryTransactions, error) {
+	// grouped is the finished list
+	grouped := make([]SubsidiaryTransactions, 0)
+
+	// subsidiaryLists are slice indexes of the current list for each subsidiary
+	subsidiaryLists := make(map[string]int)
+
 	for _, t := range transactions {
-		totals[t.SubsidiaryExternalID] = totals[t.SubsidiaryExternalID] + t.Amount
-		groupedTransactions[t.SubsidiaryExternalID] = append(groupedTransactions[t.SubsidiaryExternalID], t)
+		// if there's a list for this transaction's subsidiary, and it's still short enough, add to it
+		if idx, ok := subsidiaryLists[t.SubsidiaryExternalID]; ok {
+			if len(grouped[idx].Transactions) < maxSize {
+				grouped[idx].Transactions = append(grouped[idx].Transactions, t)
+				grouped[idx].TotalAmount += t.Amount
+				continue
+			}
+		}
+
+		// otherwise, make a new list and store its index in subsidiaryLists
+		grouped = append(grouped, SubsidiaryTransactions{
+			Subsidiary:   t.SubsidiaryExternalID,
+			TotalAmount:  t.Amount,
+			Transactions: []Transaction{t},
+		})
+		subsidiaryLists[t.SubsidiaryExternalID] = len(grouped) - 1
 	}
 
-	totalTransactions := 0
-	t := make([]SubsidiaryTransactions, 0, len(groupedTransactions))
-	for subsidiary := range groupedTransactions {
-		t = append(t, SubsidiaryTransactions{
-			Subsidiary:   subsidiary,
-			TotalAmount:  totals[subsidiary],
-			Transactions: groupedTransactions[subsidiary],
-		})
-		totalTransactions += len(groupedTransactions[subsidiary])
-	}
-	if len(transactions) != totalTransactions {
-		return nil, fmt.Errorf("total number of transactions in groups is not correct, expected %d, got %d",
-			len(transactions), totalTransactions)
-	}
-	return t, nil
+	return grouped, nil
 }
 
 func MarkTransactionsSent(ctx context.Context, transactions []Transaction, cfg Config) error {
@@ -464,29 +471,22 @@ func SendToWorkday(cfg Config, data []ssh.Document) error {
 	return nil
 }
 
-// CreateXMLDocuments converts a list of SubsidiaryTransactions to a map of Documents keyed by subsidiary
-func CreateXMLDocuments(st []SubsidiaryTransactions) (map[string]ssh.Document, error) {
+// CreateXMLDocuments creates an XML Document for each block of transactions in a list of SubsidiaryTransactions.
+func CreateXMLDocuments(st []SubsidiaryTransactions) error {
 	today := time.Now().Format(time.RFC3339)
 
-	docs := make(map[string]ssh.Document)
-	for _, t := range st {
+	for i, t := range st {
 		b, err := createXMLDocument(t)
 		if err != nil {
-			return nil, fmt.Errorf("XML error on %s: %w", t.Subsidiary, err)
+			return fmt.Errorf("XML error on %s: %w", t.Subsidiary, err)
 		}
 
-		doc := ssh.Document{
+		st[i].Document = ssh.Document{
 			Name:    fmt.Sprintf("%s_%s.xml", t.Subsidiary, today),
 			Content: string(b),
 		}
-
-		if _, ok := docs[t.Subsidiary]; ok {
-			return nil, fmt.Errorf("duplicate XML document: %s", t.Subsidiary)
-		}
-
-		docs[t.Subsidiary] = doc
 	}
-	return docs, nil
+	return nil
 }
 
 // createXMLDocument converts a SubsidiaryTransactions to an XMLDocument
