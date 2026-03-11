@@ -70,6 +70,7 @@ type Values struct {
 	TransactionDate                   string        `json:"trandate"`
 	TranID                            string        `json:"tranid"`
 	Memo                              string        `json:"memo"`
+	Custcol1                          string        `json:"custcol1"`
 	CustcolParcsTranTypeCode          []SelectValue `json:"custcol_parcs_tran_type_code"`
 	CustbodyParcsRefBody              string        `json:"custbody_parcs_ref_body"`
 	TaxAmount                         string        `json:"taxamount"`
@@ -253,7 +254,7 @@ func TransformSearchResponse(response SearchResponse) []Transaction {
 		t.TranDate = tranDate
 		t.TranID = v.TranID
 		t.Amount = amount
-		t.ParCSReference = v.CustbodyParcsRefBody // This is always blank. Is it the right field?
+		t.ParCSReference = v.Custcol1
 		t.CustomerCategory = firstValue(v.CustomerCustentitySILCustCategory)
 		t.ParCSTranCode = firstText(v.CustcolParcsTranTypeCode)
 		t.TranType = tranType
