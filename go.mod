@@ -1,6 +1,6 @@
 module github.com/sil-org/pipedream-go
 
-go 1.25.6
+go 1.25.8
 
 require (
 	github.com/aws/aws-sdk-go-v2 v1.41.3
