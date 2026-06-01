@@ -789,7 +789,7 @@ func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
 
 func Test_GroupTransactions(t *testing.T) {
 	var transactions []Transaction
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		testTransaction := cashSale
 		testTransaction.TranID = strconv.Itoa(i)
 
