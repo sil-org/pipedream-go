@@ -1,6 +1,6 @@
 module github.com/sil-org/pipedream-go
 
-go 1.25.8
+go 1.25.10
 
 require (
 	github.com/aws/aws-sdk-go-v2 v1.41.3
@@ -10,7 +10,7 @@ require (
 	github.com/google/go-cmp v0.7.0
 	github.com/kelseyhightower/envconfig v1.4.0
 	github.com/pkg/sftp v1.13.10
-	golang.org/x/crypto v0.48.0
+	golang.org/x/crypto v0.52.0
 )
 
 require (
@@ -27,5 +27,5 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sts v1.41.8 // indirect
 	github.com/aws/smithy-go v1.24.2 // indirect
 	github.com/kr/fs v0.1.0 // indirect
-	golang.org/x/sys v0.42.0 // indirect
+	golang.org/x/sys v0.45.0 // indirect
 )

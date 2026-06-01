@@ -80,7 +80,7 @@ func SetStructField(structPtr any, fieldName string, value string) error {
 	}
 
 	rv := reflect.ValueOf(structPtr)
-	if rv.Kind() != reflect.Ptr {
+	if rv.Kind() != reflect.Pointer {
 		return fmt.Errorf("structPtr is not a pointer, it is %T", structPtr)
 	}
 
