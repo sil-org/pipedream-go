@@ -1,0 +1,18 @@
+name: govulncheck
+on:
+  schedule:
+    # Monday at 00:00 UTC
+    - cron: '0 0 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  govulncheck:
+    uses: sil-org/workflows/.github/workflows/govulncheck.yaml@main
+    with:
+      check-latest: false
+      go-version-file: 'go.mod'
+      go-version-input: ''
