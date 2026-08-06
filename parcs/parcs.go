@@ -136,13 +136,18 @@ type PMISTran struct {
 	OPPTransactionDate   string  `xml:"OPP_Transaction_Date"`
 }
 
-// GetConfig reads from AWS Systems Manager Parameter Store and returns a Config structure for use by other functions
-// in this package.
-func GetConfig(ctx context.Context) (Config, error) {
+// GetConfig reads from environment variables, and optionally AWS Systems Manager Parameter Store, and returns a Config
+// structure for use by other functions in this package. The prefix parameter is used to differentiate operating
+// environments. Environment variable names must be prefixed with this string. If the environment variable PARAMETER_STORE_PREFIX
+// is defined, SSM parameters having that prefix will be read before loading environment variables. Thus, environment
+// can override SSM parameters but not the other way around.
+func GetConfig(ctx context.Context, prefix string) (Config, error) {
 	var cfg Config
-	config.ReadParameterStore(os.Getenv("PARAMETER_STORE_PREFIX"), &cfg)
+	if psPrefix := os.Getenv("PARAMETER_STORE_PREFIX"); psPrefix != "" {
+		config.ReadParameterStore(psPrefix, &cfg)
+	}
 
-	if err := envconfig.Process("", &cfg); err != nil {
+	if err := envconfig.Process(prefix, &cfg); err != nil {
 		return Config{}, err
 	}
 
