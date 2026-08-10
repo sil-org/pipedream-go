@@ -38,18 +38,22 @@ const (
 	CustomerRefund  = "CustRfnd"
 )
 
+// Config keeps configuration values read from environment or AWS SSM. When read from environment variables, the
+// corresponding variable name is the all-caps transformation of the 'envconfig' key prefixed with the environment
+// name prefix passed to GetConfig(). For example, if "DEV_" is the prefix, NetSuiteRealm will contain the value
+// of the DEV_NETSUITE_ACCOUNT environment variable.
 type Config struct {
-	NetSuiteConsumerKey    string `split_words:"true"`
-	NetSuiteConsumerSecret string `split_words:"true"`
-	NetSuiteToken          string `split_words:"true"`
-	NetSuiteTokenSecret    string `split_words:"true"`
-	NetSuiteRealm          string `split_words:"true"`
-	NetSuiteSavedSearchURL string `split_words:"true"`
-	NetSuiteSearchID       string `split_words:"true"`
-	SFTPUsername           string `split_words:"true"`
-	SFTPHost               string `split_words:"true"`
-	SFTPPrivateKey         string `split_words:"true"`
-	SFTPDirectory          string `split_words:"true"`
+	NetSuiteConsumerKey    string `envconfig:"netsuite_consumer_key"`
+	NetSuiteConsumerSecret string `envconfig:"netsuite_consumer_secret"`
+	NetSuiteToken          string `envconfig:"netsuite_token_id"`
+	NetSuiteTokenSecret    string `envconfig:"netsuite_token_secret"`
+	NetSuiteRealm          string `envconfig:"netsuite_account"`
+	NetSuiteSavedSearchURL string `envconfig:"netsuite_saved_search_url"`
+	NetSuiteSearchID       string `envconfig:"netsuite_search_id"`
+	SFTPUsername           string `envconfig:"sftp_username"`
+	SFTPHost               string `envconfig:"sftp_host"`
+	SFTPPrivateKey         string `envconfig:"sftp_private_key"`
+	SFTPDirectory          string `envconfig:"sftp_directory"`
 
 	client *http.Client
 }
